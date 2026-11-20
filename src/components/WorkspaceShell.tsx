@@ -1,12 +1,14 @@
 'use client';
 
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
-import { BarChart3, FileText, Home, Menu, Route, Settings, Truck, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowUpRight, BarChart3, ChevronDown, Home, Menu, Route, Search, Settings, Sparkles, Truck, UserRound, X } from 'lucide-react';
+import { BrandWordmark } from '@/components/BrandWordmark';
 
 const destinations = [
   { href: '/', label: 'Inicio', icon: Home },
-  { href: '/pedidos/nuevo', label: 'Copiloto de pedidos', icon: FileText },
+  { href: '/pedidos/nuevo', label: 'Copiloto de pedidos', icon: Sparkles },
   { href: '/chofer', label: 'App chofer', icon: Truck },
   { href: '/gerente', label: 'Tablero gerencial', icon: BarChart3 },
   { href: '/tracking/IT-8901', label: 'Seguimiento público', icon: Route },
@@ -15,78 +17,138 @@ const destinations = [
 
 interface WorkspaceShellProps {
   current: (typeof destinations)[number]['href'];
+  context?: ReactNode;
+  companyName?: string;
   toolbar?: ReactNode;
-  sidebarNote?: ReactNode;
+  workspaceNote?: string;
   children: ReactNode;
 }
 
-export function WorkspaceShell({ current, toolbar, sidebarNote, children }: WorkspaceShellProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
+export function WorkspaceShell({
+  current, context, companyName, toolbar, workspaceNote, children,
+}: WorkspaceShellProps) {
+  const router = useRouter();
+  const [panel, setPanel] = useState<'navigation' | 'workspace' | null>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const workspaceButton = useRef<HTMLButtonElement>(null);
   const navId = useId();
+  const workspaceId = useId();
   const title = destinations.find(({ href }) => href === current)?.label;
 
+  function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = new FormData(event.currentTarget).get('tracking');
+    const code = String(value ?? '').trim().toUpperCase() || 'IT-8901';
+    router.push(`/tracking/${encodeURIComponent(code)}`);
+  }
+
   return (
-    <div className="min-h-dvh flex flex-col lg:flex-row">
-      <aside
-        className="bg-surface border-b border-line lg:sticky lg:top-0 lg:h-dvh lg:w-56 lg:shrink-0 lg:border-b-0 lg:border-r lg:flex lg:flex-col"
+    <div className="workspace-shell">
+      <header
+        className="workspace-navbar glass-surface"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setPanel(null);
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && menuOpen && menuButton.current?.getClientRects().length) {
+          if (event.key === 'Escape' && panel) {
             event.preventDefault();
-            setMenuOpen(false);
-            menuButton.current.focus();
+            (panel === 'navigation' ? menuButton : workspaceButton).current?.focus();
+            setPanel(null);
           }
         }}
       >
-        <div className="flex min-h-16 items-center justify-between gap-3 px-(--gutter) lg:px-5 lg:border-b lg:border-line">
-          <Link href="/" className="font-display text-lg font-bold tracking-tight text-ink-strong">
-            Innova Track
-          </Link>
+        <BrandWordmark />
+
+        <form className="nav-search glass-inset" role="search" aria-label="Seguimiento de pedidos" onSubmit={handleSearch}>
+          <Search size={17} strokeWidth={1.6} aria-hidden="true" />
+          <input
+            name="tracking"
+            type="text"
+            placeholder="Buscar guía"
+            aria-label="Código de seguimiento"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+          <button type="submit" aria-label="Consultar seguimiento">
+            <ArrowUpRight size={17} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </form>
+
+        {context}
+
+        <div className="nav-actions">
           <button
             ref={menuButton}
             type="button"
-            className="ui-button ui-button-secondary lg:hidden"
-            aria-expanded={menuOpen}
+            className="nav-icon-button glass-inset lg:hidden"
+            aria-label="Menú"
+            aria-expanded={panel === 'navigation'}
             aria-controls={navId}
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => setPanel((open) => open === 'navigation' ? null : 'navigation')}
           >
-            {menuOpen ? <X size={17} aria-hidden="true" /> : <Menu size={17} aria-hidden="true" />}
-            Menú
+            {panel === 'navigation' ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}
+          </button>
+          <button
+            ref={workspaceButton}
+            type="button"
+            className="nav-profile-button glass-inset"
+            aria-label="Espacio operativo"
+            aria-expanded={panel === 'workspace'}
+            aria-controls={workspaceId}
+            onClick={() => setPanel((open) => open === 'workspace' ? null : 'workspace')}
+          >
+            <span className="nav-avatar"><UserRound size={17} strokeWidth={1.65} aria-hidden="true" /></span>
+            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
 
         <nav
           id={navId}
           aria-label="Navegación principal"
-          className={`${menuOpen ? 'grid' : 'hidden'} gap-1 px-(--gutter) pb-3 sm:grid-cols-2 lg:flex lg:min-h-0 lg:flex-col lg:overflow-y-auto lg:p-3`}
+          className={`workspace-dock glass-surface ${panel === 'navigation' ? 'workspace-dock-open' : ''}`}
         >
           {destinations.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
+              aria-label={label}
               aria-current={href === current ? 'page' : undefined}
-              onClick={() => setMenuOpen(false)}
-              className="flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-secondary hover:bg-subtle aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent-hover"
+              className="workspace-dock-link"
+              onClick={() => {
+                if (href === current && panel === 'navigation') menuButton.current?.focus();
+                setPanel(null);
+              }}
             >
-              <Icon size={17} className="shrink-0" aria-hidden="true" />
-              {label}
+              <Icon size={19} strokeWidth={1.5} aria-hidden="true" />
+              <span aria-hidden="true">{label}</span>
             </Link>
           ))}
         </nav>
-        {sidebarNote && (
-          <div className="hidden lg:block mt-auto border-t border-line p-4 text-sm text-muted">
-            {sidebarNote}
-          </div>
-        )}
-      </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-line bg-surface">
-          <div className="workspace-content flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 sm:py-3">
+        <section
+          id={workspaceId}
+          hidden={panel !== 'workspace'}
+          aria-label="Opciones del espacio operativo"
+          className="workspace-profile glass-surface"
+        >
+          <p className="text-sm font-bold text-ink">Espacio operativo</p>
+          {companyName && <p className="mt-1 text-sm text-secondary break-words">{companyName}</p>}
+          {workspaceNote && <p className="mt-1 text-xs text-muted">{workspaceNote}</p>}
+          <Link href="/configuracion" className="workspace-profile-link" onClick={() => setPanel(null)}>
+            <Settings size={16} strokeWidth={1.6} aria-hidden="true" />
+            Configuración de APIs
+          </Link>
+        </section>
+      </header>
+
+      <div className="workspace-body">
+        {toolbar && (
+          <div className="workspace-toolbar">
             <span className="text-sm font-semibold text-secondary">{title}</span>
             {toolbar}
           </div>
-        </header>
+        )}
         {children}
       </div>
     </div>

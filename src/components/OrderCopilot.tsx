@@ -3,19 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
+  ArrowUp,
   Check,
+  CloudUpload,
   Copy,
   ExternalLink,
   FileText,
+  Paperclip,
   Loader2,
   Mic,
   Plus,
   Receipt,
   Route,
+  Sparkles,
   Square,
   Trash2,
   Truck,
-  Upload,
+  X,
 } from 'lucide-react';
 import { TableScroll } from '@/components/TableScroll';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
@@ -531,9 +535,39 @@ export function OrderCopilot({
     setTimeout(() => setCopiedWhatsApp(false), 2000);
   }
 
+  const progress = (
+    <ol aria-label="Pasos del copiloto" className="copilot-steps">
+      {STEP_LABELS.map((item) => {
+        const isCurrent = step === item.step;
+        const isDone = step > item.step;
+        return (
+          <li
+            key={item.step}
+            aria-current={isCurrent ? 'step' : undefined}
+            className="copilot-step"
+          >
+            <span className="copilot-step-number" aria-hidden="true">
+              {isDone ? <Check size={14} className="text-success" /> : item.step}
+            </span>
+            {item.title}
+            {isDone && <span className="sr-only"> (completado)</span>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+
   return (
     <WorkspaceShell
       current="/pedidos/nuevo"
+      companyName={activeEmpresa.nombre}
+      context={
+        <CompanySwitcher
+          companies={empresas}
+          current={activeEmpresa.id}
+          onChange={(company) => handleSelectEmpresa(company.id)}
+        />
+      }
       toolbar={
         <button
           type="button"
@@ -544,55 +578,16 @@ export function OrderCopilot({
         </button>
       }
     >
-      <main id="contenido" tabIndex={-1} className="workspace-content flex-1 space-y-(--space-stack)">
-        {/* Toolbar de contexto multi-empresa */}
-        <section
-          aria-label="Empresa operadora"
-          className="bg-surface border border-line rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
-        >
-          <div>
-            <h1 className="page-title">{activeEmpresa.nombre}</h1>
-            <p className="text-xs text-muted mt-0.5">
-              {activeEmpresa.tipo_operacion === 'distribuidora_flotilla'
-                ? 'Modo Distribuidora: asignación automática a ruta y flotilla propia'
-                : 'Modo PyME: cotización y despacho vía API de courier externo'}
-              {' · '}
-              <span className="font-mono tabular-nums">{clientes.filter((c) => c.empresa_id === activeEmpresa.id).length}</span> clientes
-              {' · '}
-              <span className="font-mono tabular-nums">{empresaCatalog.length}</span> SKUs
-            </p>
-          </div>
-
-          <CompanySwitcher
-            companies={empresas}
-            current={activeEmpresa.id}
-            onChange={(company) => handleSelectEmpresa(company.id)}
-          />
-        </section>
-
-        <ol aria-label="Pasos del copiloto" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {STEP_LABELS.map((item) => {
-            const isCurrent = step === item.step;
-            const isDone = step > item.step;
-            return (
-              <li
-                key={item.step}
-                aria-current={isCurrent ? 'step' : undefined}
-                className={`flex items-center gap-2 rounded-lg border px-2.5 py-2.5 text-sm font-semibold sm:px-3 ${
-                  isCurrent
-                    ? 'border-accent bg-accent-soft text-accent-hover'
-                    : 'border-line bg-surface text-secondary'
-                }`}
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-subtle text-xs tabular-nums" aria-hidden="true">
-                  {isDone ? <Check size={14} className="text-success" /> : item.step}
-                </span>
-                {item.title}
-                {isDone && <span className="sr-only"> (completado)</span>}
-              </li>
-            );
-          })}
-        </ol>
+      <main id="contenido" tabIndex={-1} className={`workspace-content flex-1 ${step === 1 ? 'copilot-canvas' : 'space-y-(--space-stack)'}`}>
+        {step !== 1 && (
+          <>
+            <div className="space-y-1">
+              <h1 className="page-title">Copiloto de pedidos</h1>
+              <p className="text-sm text-muted">{activeEmpresa.nombre}</p>
+            </div>
+            {progress}
+          </>
+        )}
 
         {errorMsg && (
           <div
@@ -611,143 +606,130 @@ export function OrderCopilot({
         )}
 
         {step === 1 && (
-          <section
-            key="step-1"
-            className="bg-surface border border-line rounded-lg p-4 sm:p-6 space-y-5"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 ref={stepHeading} tabIndex={-1} className="section-title">
-                  Capturar pedido
-                </h2>
-                <p className="text-sm text-muted">
-                  Pega un mensaje de WhatsApp, arrastra una foto/PDF de orden de compra o graba una nota de voz.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => loadSample('distribuidora')}
-                  className="ui-button ui-button-secondary"
-                >
-                  Cargar ejemplo Distribuidora
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadSample('pyme')}
-                  className="ui-button ui-button-secondary"
-                >
-                  Cargar ejemplo PyME
-                </button>
-              </div>
+          <section key="step-1" className="copilot-intro" aria-labelledby="copilot-heading">
+            <div className="copilot-intro-heading">
+              <h1 id="copilot-heading" ref={stepHeading} tabIndex={-1} className="hero-title">
+                Captura tu próximo <em>pedido</em>
+              </h1>
+              <p className="hero-description">
+                Pega un mensaje, adjunta un archivo o graba un audio.
+                Revisa el pedido antes de confirmarlo.
+              </p>
             </div>
 
-            {/* Zona única de entrada */}
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
+            <form
+              className="copilot-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!isLoading) void handleProcessIngestion();
               }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                const file = e.dataTransfer.files?.[0];
-                if (file) setSelectedFile(file);
-              }}
-              className={`rounded-lg p-3 sm:p-4 space-y-4 transition-colors duration-150 ${
-                isDragging ? 'outline-2 outline-accent bg-accent-soft' : 'bg-subtle'
-              }`}
             >
-              <label htmlFor="pedido-texto" className="mb-2 block text-sm font-semibold text-ink">
-                Texto del pedido o instrucciones
-              </label>
-              <textarea
-                id="pedido-texto"
-                rows={5}
-                value={rawText}
-                onChange={(e) => setRawText(e.target.value)}
-                placeholder="Ejemplo: Hola, para Supermercado San Pedro Plaza enviar 6 cajas de Aceite Vegetal 1L y 5 bultos de Arroz 25kg..."
-                className="ui-field w-full p-3 text-sm placeholder:text-muted resize-y"
-              />
+              <div className="command-pill glass-surface">
+                <Sparkles className="command-sparkle" size={22} strokeWidth={1.65} aria-hidden="true" />
+                <label htmlFor="pedido-texto" className="sr-only">Texto del pedido o instrucciones</label>
+                <textarea
+                  id="pedido-texto"
+                  rows={rawText.includes('\n') ? 4 : 1}
+                  value={rawText}
+                  onChange={(event) => setRawText(event.target.value)}
+                  placeholder="Escribe tu pedido…"
+                  className="command-input"
+                />
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  aria-label="Procesar con Copiloto IA"
+                  className="command-submit"
+                >
+                  {isLoading
+                    ? <Loader2 size={21} className="animate-spin" aria-hidden="true" />
+                    : <ArrowUp size={22} strokeWidth={2.1} aria-hidden="true" />}
+                </button>
+              </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,application/pdf,audio/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      setSelectedFile(file);
-                    }}
-                  />
+              <div className="copilot-status" role="status">
+                {isLoading && 'Preparando el pedido…'}
+              </div>
+
+              <div
+                className="copilot-dropzone"
+                data-dragging={isDragging || undefined}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={(event) => {
+                  if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+                    setIsDragging(false);
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDragging(false);
+                  const file = event.dataTransfer.files[0];
+                  if (file) setSelectedFile(file);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,application/pdf,audio/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) setSelectedFile(file);
+                    event.target.value = '';
+                  }}
+                />
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="dropzone-trigger">
+                  <span className="dropzone-icon" aria-hidden="true">
+                    <CloudUpload size={27} strokeWidth={1.6} />
+                  </span>
+                  <span className="text-base font-bold text-ink">Arrastra un archivo o selecciónalo</span>
+                  <span className="text-sm text-secondary">Imágenes, PDF o audio</span>
+                </button>
+              </div>
+
+              {selectedFile && (
+                <div className="copilot-attachment glass-inset">
+                  <Paperclip size={16} strokeWidth={1.7} className="shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 break-words text-sm font-semibold">{selectedFile.name}</span>
+                  <span className="text-xs font-mono tabular-nums text-muted">
+                    {Math.max(1, Math.round(selectedFile.size / 1024))} KB
+                  </span>
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="ui-button ui-button-secondary"
+                    className="nav-icon-button"
+                    onClick={() => setSelectedFile(null)}
+                    aria-label="Quitar archivo"
                   >
-                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Subir imagen, PDF o audio</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={toggleAudioRecording}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-md border text-xs font-medium whitespace-nowrap transition-colors duration-150 active:scale-[0.98] ${
-                      isRecording
-                        ? 'border-danger-line bg-danger-soft text-danger'
-                        : 'border-line bg-surface text-secondary hover:bg-subtle'
-                    }`}
-                  >
-                    {isRecording ? (
-                      <>
-                        <Square className="w-3.5 h-3.5" aria-hidden="true" />
-                        <span className="font-mono tabular-nums">
-                          Detener audio ({recordingSeconds}s)
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="w-3.5 h-3.5" aria-hidden="true" />
-                        <span>Grabar nota de voz</span>
-                      </>
-                    )}
+                    <X size={16} aria-hidden="true" />
                   </button>
                 </div>
+              )}
 
-                {selectedFile && (
-                  <div className="flex items-center gap-2 text-xs text-secondary bg-surface border border-line rounded-md px-3 py-1.5">
-                    <span className="truncate max-w-[220px] font-medium">
-                      {selectedFile.name}
-                    </span>
-                    <span className="text-muted font-mono tabular-nums">
-                      {Math.max(1, Math.round(selectedFile.size / 1024))} KB
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFile(null)}
-                      className="text-muted hover:text-danger font-medium"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                )}
+              <div className="copilot-tools">
+                <button
+                  type="button"
+                  onClick={toggleAudioRecording}
+                  className={`copilot-tool ${isRecording ? 'text-danger' : ''}`}
+                >
+                  {isRecording ? <Square size={14} aria-hidden="true" /> : <Mic size={15} strokeWidth={1.65} aria-hidden="true" />}
+                  {isRecording ? `Detener audio (${recordingSeconds}s)` : 'Grabar audio'}
+                </button>
+                <button type="button" onClick={() => loadSample('distribuidora')} className="copilot-tool">
+                  Ejemplo flotilla
+                </button>
+                <button type="button" onClick={() => loadSample('pyme')} className="copilot-tool">
+                  Ejemplo PyME
+                </button>
               </div>
-            </div>
+            </form>
 
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={handleProcessIngestion}
-                className="ui-button ui-button-primary"
-              >
-                {isLoading && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-                <span>{isLoading ? 'Estructurando pedido...' : 'Procesar con Copiloto IA'}</span>
-              </button>
-            </div>
+            {progress}
+            <p className="copilot-context">
+              {activeEmpresa.nombre} · {clientes.filter((cliente) => cliente.empresa_id === activeEmpresa.id).length} clientes · {empresaCatalog.length} SKUs
+            </p>
           </section>
         )}
 

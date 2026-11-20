@@ -157,6 +157,8 @@ export function ConfigPanel({ initialEmpresas }: ConfigPanelProps) {
   return (
     <WorkspaceShell
       current="/configuracion"
+      companyName={currentEmpresa?.nombre}
+      context={<CompanySwitcher companies={empresas} current={selectedId} onChange={selectCompany} />}
       toolbar={
         <button
           type="button"
@@ -175,7 +177,7 @@ export function ConfigPanel({ initialEmpresas }: ConfigPanelProps) {
     >
       <main id="contenido" tabIndex={-1} className="workspace-content flex-1 space-y-(--space-stack)">
         {/* Selector de empresa */}
-        <section className="bg-surface border border-line rounded-lg p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <section className="glass-surface rounded-2xl p-5">
           <div>
             <h1 className="page-title">
               Perfil de empresa
@@ -186,12 +188,7 @@ export function ConfigPanel({ initialEmpresas }: ConfigPanelProps) {
             </p>
           </div>
 
-          <CompanySwitcher
-            companies={empresas}
-            current={selectedId}
-            onChange={selectCompany}
-            shortLabels
-          />
+
         </section>
 
         {saveMessage && (
