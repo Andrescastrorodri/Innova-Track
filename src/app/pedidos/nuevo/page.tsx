@@ -1,6 +1,8 @@
 import { OrderCopilot } from '@/components/OrderCopilot';
 import { getOperationalContext } from '@/lib/data-store';
 
+export const metadata = { title: 'Copiloto de pedidos | Innova Track' };
+
 export const dynamic = 'force-dynamic';
 
 export default async function NuevoPedidoPage() {

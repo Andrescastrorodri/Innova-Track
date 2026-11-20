@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { PublicTrackingView } from '@/components/PublicTrackingView';
 import { getTrackingDetailsByCode } from '@/lib/data-store';
 
+export const metadata = { title: 'Seguimiento de pedido | Innova Track' };
+
 export const dynamic = 'force-dynamic';
 
 export default async function TrackingPage({
@@ -14,16 +16,16 @@ export default async function TrackingPage({
 
   if (!details) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-slate-200 rounded-lg p-6 text-center space-y-3">
-          <h1 className="text-lg font-semibold text-slate-900">Código no encontrado</h1>
-          <p className="text-sm text-slate-600">
-            No encontramos un pedido registrado con el código <span className="font-mono font-medium">{codigo}</span>.
+      <main id="contenido" tabIndex={-1} className="grid min-h-dvh place-items-center p-4">
+        <div className="max-w-md w-full bg-surface border border-line rounded-2xl p-6 shadow-md space-y-4 sm:p-8">
+          <h1 className="page-title">Código no encontrado</h1>
+          <p className="text-sm text-secondary">
+            No encontramos un pedido registrado con el código <span className="font-mono font-medium [overflow-wrap:anywhere]">{codigo}</span>.
           </p>
           <div className="pt-2">
             <Link
               href="/pedidos/nuevo"
-              className="inline-flex px-4 py-2 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800"
+              className="ui-button ui-button-primary"
             >
               Ir al Copiloto de Pedidos
             </Link>
