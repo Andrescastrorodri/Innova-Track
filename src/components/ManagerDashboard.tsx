@@ -180,10 +180,10 @@ export function ManagerDashboard({
   return (
     <WorkspaceShell
       current="/gerente"
-      sidebarNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Lectura consolidada · Costa Rica'}
+      workspaceNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Lectura consolidada · Costa Rica'}
+      companyName={dashboard.empresa.nombre}
+      context={<CompanySwitcher companies={empresas} current={selectedEmpresaId} onChange={(company) => handleSwitchEmpresa(company.id)} />}
       toolbar={
-        <div className="flex flex-wrap items-center gap-2.5">
-          <CompanySwitcher companies={empresas} current={selectedEmpresaId} onChange={(company) => handleSwitchEmpresa(company.id)} />
           <button
             type="button"
             disabled={isRefreshing}
@@ -196,7 +196,6 @@ export function ManagerDashboard({
             />
             <span>{isRefreshing ? 'Actualizando…' : 'Actualizar'}</span>
           </button>
-        </div>
       }
     >
       <main id="contenido" tabIndex={-1} className="workspace-content flex-1 space-y-(--space-stack)">

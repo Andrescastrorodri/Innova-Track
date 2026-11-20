@@ -2,18 +2,17 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
   FileText,
   Route,
-  Search,
   Settings,
   Truck,
 } from 'lucide-react';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { TableScroll } from '@/components/TableScroll';
+import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { formatColones, formatInt } from '@/lib/seed-data';
 import type { ExecutiveDashboardData } from '@/lib/analytics';
 import type { EmpresaConfig, Pedido } from '@/lib/types';
@@ -29,9 +28,7 @@ export function HomeHub({
   pedidosRecientes,
   dashboardsByEmpresa,
 }: HomeHubProps) {
-  const router = useRouter();
   const [selectedEmpresaId, setSelectedEmpresaId] = useState<string>(empresas[0]?.id ?? '');
-  const [trackingQuery, setTrackingQuery] = useState('IT-8901');
 
   const activeEmpresa = useMemo(
     () => empresas.find((e) => e.id === selectedEmpresaId) ?? empresas[0],
@@ -40,12 +37,6 @@ export function HomeHub({
 
   const activeDashboard = dashboardsByEmpresa[activeEmpresa?.id ?? ''];
   const isFlotilla = activeEmpresa?.tipo_operacion === 'distribuidora_flotilla';
-
-  function handleOpenTracking(e: React.FormEvent) {
-    e.preventDefault();
-    const cleaned = trackingQuery.trim().toUpperCase() || 'IT-8901';
-    router.push(`/tracking/${encodeURIComponent(cleaned)}`);
-  }
 
   const modulos = [
     {
@@ -115,62 +106,30 @@ export function HomeHub({
   ];
 
   return (
-    <div className="min-h-dvh">
-      <header className="bg-surface border-b border-line">
-        <div className="site-content flex flex-wrap items-center justify-between gap-3 py-3 sm:py-3.5">
-          <span className="font-display text-xl font-bold tracking-tight text-ink-strong">
-            Innova Track
-          </span>
-          <CompanySwitcher
-            companies={empresas}
-            current={activeEmpresa?.id}
-            onChange={(company) => setSelectedEmpresaId(company.id)}
-          />
-        </div>
-      </header>
-
-      <main id="contenido" tabIndex={-1} className="site-content space-y-(--space-stack)">
-        <section className="bg-feature text-on-ink rounded-2xl shadow-md px-5 py-6 sm:p-8 lg:p-10">
-          <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.58fr)] lg:gap-10">
-            <div className="min-w-0 space-y-2.5">
-              <h1 className="text-3xl sm:text-4xl font-bold leading-[1.12] tracking-tight">
-                {activeEmpresa?.nombre || 'Panel operativo'}
-              </h1>
-              {activeEmpresa && (
-                <p className="text-sm font-semibold text-feature-muted">
-                  {isFlotilla ? 'Operación con flotilla propia' : 'Operación con mensajería externa'}
-                </p>
-              )}
-              <p className="max-w-[46ch] text-sm sm:text-base leading-relaxed text-feature-muted">
-                Gestiona pedidos, facturación electrónica y entregas en Costa Rica.
-              </p>
-            </div>
-
-            <form onSubmit={handleOpenTracking} className="min-w-0 border-t border-feature-line pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-              <label htmlFor="hub-tracking-search" className="mb-2 block text-sm font-semibold">
-                Código de seguimiento
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[7rem] flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden="true" />
-                  <input
-                    id="hub-tracking-search"
-                    type="text"
-                    autoComplete="off"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    value={trackingQuery}
-                    onChange={(e) => setTrackingQuery(e.target.value)}
-                    placeholder="Ej. IT-8901"
-                    className="ui-field w-full pl-9 pr-3 font-mono text-sm"
-                  />
-                </div>
-                <button type="submit" className="ui-button ui-button-primary">
-                  Consultar
-                </button>
-              </div>
-            </form>
+    <WorkspaceShell
+      current="/"
+      companyName={activeEmpresa?.nombre}
+      context={
+        <CompanySwitcher
+          companies={empresas}
+          current={activeEmpresa?.id}
+          onChange={(company) => setSelectedEmpresaId(company.id)}
+        />
+      }
+    >
+      <main id="contenido" tabIndex={-1} className="workspace-content space-y-(--space-stack)">
+        <section className="glass-surface home-overview rounded-3xl px-5 py-6 sm:p-8">
+          <div className="min-w-0 space-y-2">
+            <h1 className="page-title">{activeEmpresa?.nombre || 'Panel operativo'}</h1>
+            <p className="text-secondary">
+              {activeEmpresa
+                ? (isFlotilla ? 'Operación con flotilla propia' : 'Operación con mensajería externa')
+                : 'Pedidos, facturación y entregas'}
+            </p>
           </div>
+          <Link href="/pedidos/nuevo" className="ui-button ui-button-primary">
+            Crear pedido <ArrowRight size={17} aria-hidden="true" />
+          </Link>
         </section>
 
         {metrics && (
@@ -281,6 +240,6 @@ export function HomeHub({
           )}
         </section>
       </main>
-    </div>
+    </WorkspaceShell>
   );
 }

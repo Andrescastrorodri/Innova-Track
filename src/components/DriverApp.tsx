@@ -526,10 +526,10 @@ export function DriverApp({ initialContext }: DriverAppProps) {
   }
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink-strong">
+    <div className="min-h-dvh text-ink-strong">
       {/* Compact Sticky Top App Bar (56px) */}
-      <header className="sticky top-0 z-30 min-h-16 bg-surface border-b border-line px-4 pt-[env(safe-area-inset-top)]">
-        <div className="max-w-4xl mx-auto flex min-h-16 items-center justify-between gap-3">
+      <header className="solo-navbar glass-surface sticky top-[max(0.5rem,env(safe-area-inset-top))] z-30">
+        <div className="max-w-4xl mx-auto flex min-h-11 items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Link
               href="/"

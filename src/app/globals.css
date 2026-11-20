@@ -7,29 +7,38 @@
   --brand-black: #000000;
   --brand-white: #ffffff;
 
-  --canvas: #f4f7f7;
-  --surface: var(--brand-white);
-  --surface-subtle: #edf2f2;
-  --surface-hover: #e4eeee;
-  --ink: #111c1e;
-  --ink-strong: #0a1719;
-  --text-secondary: #3c5156;
-  --text-muted: #50646a;
-  --line: #d6e1e2;
-  --line-strong: #97abad;
-  --control-border: #82989b;
+  --aura-ice: #f4f9ff;
+  --aura-sky: #dcebfa;
+  --aura-cyan: #b8f2f5;
+  --canvas: var(--aura-ice);
+  --surface: #fcfeff;
+  --surface-subtle: #edf5fc;
+  --surface-hover: #e4effa;
+  --ink: #0b1938;
+  --ink-strong: var(--ink);
+  --text-secondary: #3b5278;
+  --text-muted: #50668a;
+  --line: #d8e4f3;
+  --line-strong: #a3b7cf;
+  --control-border: #738bab;
 
-  --accent: color-mix(in srgb, var(--brand-secondary) 74%, var(--brand-black));
-  --accent-hover: color-mix(in srgb, var(--brand-secondary) 56%, var(--brand-black));
-  --accent-soft: #e0f5f4;
-  --primary-hover: #06c5ca;
-  --focus: color-mix(in srgb, var(--brand-secondary) 85%, var(--brand-black));
-  --on-primary: var(--brand-black);
+  --accent: color-mix(in srgb, var(--accent-highlight) 59%, var(--ink));
+  --accent-hover: #005e6b;
+  --accent-soft: #dff7fa;
+  --accent-start: #00d2df;
+  --accent-end: #00a8b8;
+  --accent-highlight: #00b8c4;
+  --accent-gradient: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+  --accent-glow: 0 6px 20px rgb(0 184 196 / 35%);
+  --focus: #006d7b;
+  --on-primary: var(--ink);
   --on-ink: var(--brand-white);
-  --feature: #102a2e;
-  --feature-muted: #c1d9d9;
-  --feature-line: #426064;
-  --chart-bar: #8da9ad;
+  --chart-bar: #93b6cb;
+
+  --glass-background: rgb(255 255 255 / 55%);
+  --glass-border: rgb(255 255 255 / 85%);
+  --glass-shadow: 0 12px 32px -8px rgb(11 25 56 / 8%), inset 0 1px 1px rgb(255 255 255 / 90%);
+  --glass-inset-shadow: inset 0 2px 5px rgb(11 25 56 / 5%), 0 1px 0 rgb(255 255 255 / 82%);
 
   --success: #166444;
   --success-strong: #105137;
@@ -45,13 +54,14 @@
   --danger-line: #efbdc4;
 
   --radius-control: 0.5rem;
-  --radius-panel: 0.75rem;
-  --radius-feature: 1rem;
+  --radius-panel: 1rem;
+  --radius-feature: 1.5rem;
   --shadow-control: 0 1px 2px rgb(10 23 25 / 8%);
   --shadow-panel: 0 8px 24px -16px rgb(10 23 25 / 24%);
   --gutter: clamp(1rem, 3.2vw, 2.5rem);
   --space-stack: clamp(1.25rem, 3vw, 2rem);
   --duration-feedback: 140ms;
+  --duration-glass: 300ms;
   --ease-out-ui: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
@@ -74,12 +84,8 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-primary: var(--brand-primary);
-  --color-primary-hover: var(--primary-hover);
   --color-on-primary: var(--on-primary);
   --color-on-ink: var(--on-ink);
-  --color-feature: var(--feature);
-  --color-feature-muted: var(--feature-muted);
-  --color-feature-line: var(--feature-line);
   --color-success: var(--success);
   --color-success-strong: var(--success-strong);
   --color-success-soft: var(--success-soft);
@@ -190,7 +196,7 @@
     min-block-size: 2.75rem;
     padding-inline: 0.875rem;
     border: 1px solid transparent;
-    border-radius: var(--radius-control);
+    border-radius: 999px;
     font-size: 0.875rem;
     font-weight: 700;
     line-height: 1.25;
@@ -200,13 +206,14 @@
   }
 
   .ui-button-primary {
-    background: var(--brand-primary);
+    background: var(--accent-gradient);
     color: var(--on-primary);
+    box-shadow: 0 4px 14px rgb(0 168 184 / 18%);
   }
 
   .ui-button-secondary {
     border-color: var(--control-border);
-    background: var(--surface);
+    background: var(--glass-background);
     color: var(--ink);
   }
 
@@ -218,6 +225,7 @@
     border-color: var(--line);
     background: var(--surface-subtle);
     color: var(--text-muted);
+    box-shadow: none;
   }
 
   .ui-field {
@@ -286,7 +294,7 @@
 
   @media (hover: hover) {
     .ui-button-primary:hover:not(:disabled) {
-      background: var(--primary-hover);
+      box-shadow: var(--accent-glow);
     }
 
     .ui-button-secondary:hover:not(:disabled),
@@ -299,10 +307,6 @@
 :where(a, button, input, select, textarea, summary, main, [tabindex]):focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-}
-
-:where(.bg-feature) :focus-visible {
-  outline-color: var(--brand-primary);
 }
 
 @media (max-width: 47.99rem), (pointer: coarse) {

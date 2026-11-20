@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Check, Clock, FileCheck2, MapPin, PackageCheck, Truck } from 'lucide-react';
+import { BrandWordmark } from '@/components/BrandWordmark';
 import { TableScroll } from '@/components/TableScroll';
 import { formatColones } from '@/lib/seed-data';
 import type { Cliente, EmpresaConfig, Entrega, Pedido, Vehiculo, Viaje } from '@/lib/types';
@@ -81,19 +82,15 @@ export function PublicTrackingView({
     entrega?.estado === 'rechazado';
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink">
-      <header className="border-b border-line bg-surface">
-        <div className="site-content flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-1 py-4">
-          <Link href="/" className="font-display text-lg font-bold tracking-tight text-ink-strong">
-            Innova Track
-          </Link>
-          <span className="text-sm font-medium text-secondary">{empresa.nombre}</span>
-        </div>
+    <div className="min-h-dvh text-ink">
+      <header className="solo-navbar glass-surface flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <BrandWordmark />
+        <span className="pl-1 text-sm font-medium text-secondary">{empresa.nombre}</span>
       </header>
 
       <main id="contenido" tabIndex={-1} className="site-content max-w-5xl space-y-5">
         {/* Resumen de estado */}
-        <section className="bg-surface border border-line rounded-lg p-4 sm:p-6 space-y-6">
+        <section className="glass-surface rounded-2xl p-4 sm:p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h1 className="page-title">Pedido {pedido.codigo_tracking}</h1>
