@@ -1,0 +1,6 @@
+{
+  "name": "Innova Track",
+  "description": "Plataforma SaaS de ingesta inteligente de pedidos, facturación, despacho y control logístico para PyMEs y Distribuidoras en Costa Rica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
