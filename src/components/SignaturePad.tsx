@@ -20,7 +20,7 @@ export function SignaturePad({ onChange, disabled = false }: SignaturePadProps) 
     if (!ctx) return;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#0f172a';
+    ctx.strokeStyle = '#111c1e';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -87,21 +87,21 @@ export function SignaturePad({ onChange, disabled = false }: SignaturePadProps) 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-slate-700">
+        <span className="text-sm font-semibold text-secondary">
           Firma del receptor en pantalla
         </span>
         <button
           type="button"
           onClick={handleClear}
           disabled={disabled || !hasStrokes}
-          className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 active:scale-[0.98] transition-all duration-150"
+          className="ui-button ui-button-secondary min-h-[44px] border-line-strong"
         >
           <Eraser className="w-4 h-4 shrink-0" aria-hidden="true" />
           <span>Limpiar</span>
         </button>
       </div>
 
-      <div className="relative border border-slate-300 rounded-xl overflow-hidden bg-white">
+      <div className="relative border border-line-strong rounded-xl overflow-hidden bg-surface">
         <canvas
           ref={canvasRef}
           width={640}
@@ -115,8 +115,8 @@ export function SignaturePad({ onChange, disabled = false }: SignaturePadProps) 
         />
         {!hasStrokes && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-sm font-medium text-slate-400">
-              Firme aquí con el dedo
+            <span className="text-sm font-medium text-muted">
+              Firma con el dedo o el puntero
             </span>
           </div>
         )}

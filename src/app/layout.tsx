@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { DM_Sans, JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 
@@ -11,7 +11,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '600'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-dm-sans',
   display: 'swap',
 });
@@ -35,6 +35,8 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = { viewportFit: 'cover' };
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,7 +47,10 @@ export default function RootLayout({
       lang="es"
       className={`${plusJakartaSans.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">{children}</body>
+      <body className="min-h-dvh">
+        <a href="#contenido" className="skip-link">Saltar al contenido</a>
+        {children}
+      </body>
     </html>
   );
 }
