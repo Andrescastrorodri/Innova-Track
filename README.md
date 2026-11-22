@@ -104,7 +104,7 @@ Con esas tres variables configuradas, todas las operaciones (pedidos, inventario
 
 Sobre la seguridad de las tablas: la app habla con Supabase solo desde el servidor, con `SUPABASE_SERVICE_ROLE_KEY`, que no pasa por Row Level Security. Por eso las tablas quedan cerradas para la llave pública (`anon`) y no hace falta abrirlas. Si aparece un error de permisos, revisa que esa variable esté bien puesta en el servidor; no abras las tablas a `anon`, porque cualquiera podría leer y modificar clientes, pedidos y facturas.
 
-Estado: este modo está cubierto por pruebas automáticas de la sincronización, pero todavía no se ha ejecutado contra un proyecto real de Supabase. Pruébalo de punta a punta antes de depender de él.
+Estado: probado de punta a punta contra un proyecto real de Supabase (plan gratuito). El recorrido completo de las dos empresas guarda pedidos, entregas, firmas, viajes, gastos e inventario en la base, y el archivo local no se toca. Límites conocidos: cada operación lee todas las tablas, así que es algo más lento que el modo local; y si dos personas crean un pedido en el mismo instante, una puede recibir un error por código de seguimiento repetido y tendría que reintentar.
 
 ## Arquitectura
 

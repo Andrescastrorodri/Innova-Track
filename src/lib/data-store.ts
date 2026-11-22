@@ -310,6 +310,18 @@ export async function resetDemoStore(): Promise<{
     for (const table of STORE_TABLES) {
       await upsertRows(table, store[table] as unknown as Row[]);
     }
+
+    // Fotos y firmas subidas al bucket: una carpeta por tipo de evidencia.
+    const bucket = supabase.storage.from('evidencias');
+    const { data: folders } = await bucket.list('', { limit: 100 });
+    for (const folder of folders ?? []) {
+      const { data: files } = await bucket.list(folder.name, { limit: 1000 });
+      const paths = (files ?? []).map((f) => `${folder.name}/${f.name}`);
+      if (paths.length > 0) {
+        const { error } = await bucket.remove(paths);
+        if (!error) evidencias_borradas += paths.length;
+      }
+    }
   } else {
     writeLocalFile(store);
     if (fs.existsSync(EVIDENCE_DIR)) {

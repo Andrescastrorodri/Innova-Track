@@ -11,7 +11,7 @@ resetDemoStore()
     console.log(`Demo reiniciada (${result.almacenamiento === 'supabase' ? 'Supabase' : 'archivo local'}).`);
     console.log(`- Pedidos: ${result.pedidos} (3 de hoy esperando ruta)`);
     console.log(`- Viajes cerrados: ${result.viajes}`);
-    console.log(`- Evidencias locales borradas: ${result.evidencias_borradas}`);
+    console.log(`- Evidencias borradas: ${result.evidencias_borradas}`);
     console.log('Si el servidor está abierto, recarga la página en el navegador.');
   })
   .catch((err) => {
