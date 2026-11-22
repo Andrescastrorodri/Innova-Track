@@ -100,7 +100,11 @@ El almacén en archivo (`.data/`) sirve para la demo local, pero **no persiste e
 4. Carga los datos de demostración: `npm run seed` (usa `npm run seed -- --dry-run` para ver antes qué se cargaría).
 5. Configura las mismas variables en el servicio donde despliegues.
 
-Estado actual de esta opción: la lectura del tablero, el seguimiento y la configuración usan Supabase, pero crear pedidos, despachar y el flujo del chofer todavía leen del archivo local. Hasta que eso se complete, un despliegue con Supabase sirve para mostrar indicadores, no para operar. El botón "Reiniciar demo" solo afecta el archivo local.
+Con esas tres variables configuradas, todas las operaciones (pedidos, inventario, factura, despacho, chofer, seguimiento, tablero y configuración) leen y escriben en Supabase, y las fotos y firmas van al bucket `evidencias`. No se usa el disco. `npm run demo:reset` y el botón "Reiniciar demo" vacían las tablas y vuelven a cargar los datos de demostración.
+
+Sobre la seguridad de las tablas: la app habla con Supabase solo desde el servidor, con `SUPABASE_SERVICE_ROLE_KEY`, que no pasa por Row Level Security. Por eso las tablas quedan cerradas para la llave pública (`anon`) y no hace falta abrirlas. Si aparece un error de permisos, revisa que esa variable esté bien puesta en el servidor; no abras las tablas a `anon`, porque cualquiera podría leer y modificar clientes, pedidos y facturas.
+
+Estado: este modo está cubierto por pruebas automáticas de la sincronización, pero todavía no se ha ejecutado contra un proyecto real de Supabase. Pruébalo de punta a punta antes de depender de él.
 
 ## Arquitectura
 
