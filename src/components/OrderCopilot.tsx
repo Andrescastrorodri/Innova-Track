@@ -265,7 +265,7 @@ export function OrderCopilot({
       setEsClienteNuevo(Boolean(data.es_cliente_nuevo));
       setItems(data.items ?? []);
       setSugerenciaLogistica(data.sugerencia_logistica || '');
-      setMotorIa(data.motor_ia || 'ia');
+      setMotorIa(data.motor_etiqueta || data.motor_ia || 'IA');
       if (data.texto_extraido && !rawText.trim()) {
         setRawText(data.texto_extraido);
       }
@@ -750,7 +750,7 @@ export function OrderCopilot({
                       ? 'Cliente nuevo detectado: verifica cédula y correo de facturación'
                       : 'Coincidencia exacta en maestro de clientes'}
                     {' · '}
-                    Motor: <span className="font-mono">{motorIa}</span>
+                    Leído con: <span className="font-mono">{motorIa}</span>
                   </p>
                 </div>
                 <button

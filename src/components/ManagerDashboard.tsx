@@ -151,13 +151,14 @@ export function ManagerDashboard({
       const data = (await res.json()) as {
         alertas?: AiOperationalAlert[];
         motor?: string;
+        motor_etiqueta?: string;
         generado_en?: string;
       };
       if (!res.ok || !data.alertas) {
         setAnalysisError(true);
       } else {
         setAlerts(data.alertas);
-        setAlertsMotor(data.motor ?? 'respaldo_sql_local');
+        setAlertsMotor(data.motor_etiqueta ?? 'Respaldo analítico local');
         if (data.generado_en) {
           setAlertsTime(
             new Date(data.generado_en).toLocaleTimeString('es-CR', {
@@ -550,10 +551,7 @@ export function ManagerDashboard({
             {alertsMotor && (
               <div className="pt-3 border-t border-line flex items-center justify-between text-sm text-muted">
                 <span>
-                  Motor:{' '}
-                  {alertsMotor === 'claude-3-5-sonnet-latest'
-                    ? 'Claude Sonnet'
-                    : 'Respaldo analítico SQL'}
+                  Generado con: {alertsMotor}
                 </span>
                 {alertsTime && <span className="font-mono tabular-nums">{alertsTime} CR</span>}
               </div>
