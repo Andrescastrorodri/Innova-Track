@@ -188,6 +188,7 @@ ${clientsSummary}`;
       total_estimado,
       sugerencia_logistica,
       texto_extraido: extracted.texto_extraido || textoLibre,
+      lineas_no_entendidas: [],
       ...motorMeta,
     });
   } catch (error) {
