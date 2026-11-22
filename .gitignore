@@ -8,3 +8,6 @@ coverage/
 .env*
 !.env.example
 AGENTS.md
+# Estado de ejecucion: se regenera desde la semilla
+.data/
+tsconfig.tsbuildinfo
