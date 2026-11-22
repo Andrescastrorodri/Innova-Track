@@ -26,6 +26,7 @@ import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { formatColones, formatInt } from '@/lib/seed-data';
 import { calculateOrderTotals, type ClienteDetectado, type MatchedPedidoItem } from '@/lib/order-matching';
+import { DemoBadge } from '@/components/DemoBadge';
 import type { CourierQuoteResult, FleetRouteSuggestion, HaciendaInvoiceResult } from '@/lib/integrations';
 import type {
   Cliente,
@@ -1037,11 +1038,14 @@ export function OrderCopilot({
                     ¿Desea emitir factura electrónica ahora?
                   </h2>
                   <p className="text-xs text-muted">
-                    Pedido <span className="font-mono font-medium text-secondary">{createdPedido.codigo_tracking}</span> con stock reservado en ERP.
+                    Pedido <span className="font-mono font-medium text-secondary">{createdPedido.codigo_tracking}</span> con stock reservado en el ERP de demostración.
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-mono text-muted">Hacienda CR v4.3</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-mono text-muted">Hacienda CR v4.3</span>
+                <DemoBadge />
+              </span>
             </div>
 
             {/* Preview fiscal exacto */}
@@ -1145,8 +1149,9 @@ export function OrderCopilot({
                     Clave Hacienda: {invoiceResult.clave_hacienda}
                   </p>
                 </div>
-                <span className="text-xs font-medium text-success whitespace-nowrap">
-                  Aceptado CR
+                <span className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-success whitespace-nowrap">Aceptado CR</span>
+                  {invoiceResult.modo_integracion === 'simulado' && <DemoBadge />}
                 </span>
               </div>
             )}
@@ -1236,6 +1241,9 @@ export function OrderCopilot({
                         <p className="text-xs text-muted">Servicio y guía</p>
                         <p className="font-medium text-ink mt-0.5">{courierQuote.servicio}</p>
                         <p className="text-xs font-mono text-secondary">{courierQuote.guia_externa}</p>
+                        {courierQuote.modo_integracion === 'simulado' && (
+                          <p className="mt-1"><DemoBadge label="Cotización de demostración" /></p>
+                        )}
                       </div>
                       <div>
                         <p className="text-xs text-muted">Tarifa cotizada</p>
