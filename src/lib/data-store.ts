@@ -24,11 +24,36 @@ import type {
   Viaje,
 } from './types';
 
+// ============================================================================
+// Almacén: un solo camino para todas las operaciones.
+//
+// - Sin Supabase: los datos viven en .data/innova-track-store.json (demo local).
+// - Con Supabase: se leen las tablas, se trabaja en memoria igual que en local,
+//   y al guardar se envían solo las filas que cambiaron. No se toca el disco,
+//   así que funciona en servicios sin disco persistente como Vercel.
+// ============================================================================
+
 const STORE_DIR = path.resolve(process.cwd(), '.data');
 const STORE_FILE = path.join(STORE_DIR, 'innova-track-store.json');
 const EVIDENCE_DIR = path.join(STORE_DIR, 'evidencias');
 
-function hasSupabaseConfig(): boolean {
+/** Tablas en orden de dependencia: una fila solo referencia tablas anteriores. */
+export const STORE_TABLES = [
+  'empresas_config',
+  'productos_inventario',
+  'clientes',
+  'vehiculos',
+  'tramos',
+  'parametros_costo',
+  'viajes',
+  'pedidos',
+  'entregas',
+  'gastos',
+] as const;
+export type StoreTable = (typeof STORE_TABLES)[number];
+type Row = { id: string } & Record<string, unknown>;
+
+export function hasSupabaseConfig(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return Boolean(
@@ -39,10 +64,80 @@ function hasSupabaseConfig(): boolean {
   );
 }
 
+export function storageMode(): 'supabase' | 'local' {
+  return hasSupabaseConfig() ? 'supabase' : 'local';
+}
+
 /** Fecha de hoy en Costa Rica (UTC-6, sin horario de verano) como YYYY-MM-DD. */
 export function crToday(now: Date = new Date()): string {
   return new Date(now.getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10);
 }
+
+// --- Conversión entre filas de Postgres y los tipos de la app ----------------
+
+const EMPTY_GPS: GpsPoint = { lat: 0, lng: 0, timestamp: '' };
+const VIAJE_TEXT_FIELDS = ['foto_odometro_inicio', 'hora_salida', 'foto_odometro_fin', 'hora_regreso'] as const;
+/** Columnas que agrega la base y que la app no usa. */
+const DB_ONLY_COLUMNS = ['updated_at'];
+const TABLES_WITHOUT_CREATED_AT: StoreTable[] = STORE_TABLES.filter((t) => t !== 'pedidos');
+
+/** Fila de Postgres → objeto de la app: los NULL de un viaje sin cerrar pasan a texto vacío o cero. */
+export function rowFromDb(table: StoreTable, raw: Record<string, unknown>): Row {
+  const row: Record<string, unknown> = { ...raw };
+  for (const col of DB_ONLY_COLUMNS) delete row[col];
+  if (TABLES_WITHOUT_CREATED_AT.includes(table)) delete row.created_at;
+
+  if (table === 'viajes') {
+    for (const f of VIAJE_TEXT_FIELDS) row[f] = row[f] ?? '';
+    row.odometro_inicio = Number(row.odometro_inicio ?? 0);
+    row.odometro_fin = Number(row.odometro_fin ?? row.odometro_inicio ?? 0);
+    row.gps_salida = row.gps_salida ?? EMPTY_GPS;
+    row.gps_regreso = row.gps_regreso ?? row.gps_salida;
+    row.tramo_id = row.tramo_id ?? '';
+  }
+  if (table === 'clientes') row.telefono = row.telefono ?? '';
+  if (table === 'productos_inventario') row.ultima_sincronizacion_api = row.ultima_sincronizacion_api ?? '';
+  return row as Row;
+}
+
+/** Objeto de la app → fila de Postgres: texto vacío en fechas y fotos pasa a NULL. */
+export function rowToDb(table: StoreTable, row: Row): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  if (table === 'viajes') {
+    for (const f of VIAJE_TEXT_FIELDS) if (out[f] === '') out[f] = null;
+    if (out.tramo_id === '') out.tramo_id = null;
+  }
+  if (table === 'productos_inventario' && out.ultima_sincronizacion_api === '') {
+    out.ultima_sincronizacion_api = null;
+  }
+  return out;
+}
+
+type Snapshot = Map<string, string>;
+
+function takeSnapshot(data: SeedDataset): Snapshot {
+  const snap: Snapshot = new Map();
+  for (const table of STORE_TABLES) {
+    for (const row of data[table] as unknown as Row[]) {
+      snap.set(`${table}:${row.id}`, JSON.stringify(row));
+    }
+  }
+  return snap;
+}
+
+/** Filas nuevas o modificadas desde la foto tomada al abrir el almacén, por tabla. */
+export function diffStore(snapshot: Snapshot, data: SeedDataset): Array<{ table: StoreTable; rows: Row[] }> {
+  const changes: Array<{ table: StoreTable; rows: Row[] }> = [];
+  for (const table of STORE_TABLES) {
+    const rows = (data[table] as unknown as Row[]).filter(
+      (row) => snapshot.get(`${table}:${row.id}`) !== JSON.stringify(row)
+    );
+    if (rows.length > 0) changes.push({ table, rows });
+  }
+  return changes;
+}
+
+// --- Datos de demostración ---------------------------------------------------
 
 function nextTrackingCode(pedidos: Pedido[]): string {
   const max = pedidos.reduce((acc, p) => {
@@ -86,7 +181,8 @@ export function buildDemoStore(now: Date = new Date()): SeedDataset {
     const iva = Math.round(subtotal * 0.13 * 100) / 100;
     const codigo = nextTrackingCode(store.pedidos);
     store.pedidos.push({
-      id: randomUUID(),
+      // Identificador fijo para que cargar la semilla dos veces no duplique el pedido.
+      id: `dd000000-0000-4000-8000-${String(idx + 1).padStart(12, '0')}`,
       empresa_id: empresa.id,
       codigo_tracking: codigo,
       cliente_id: cliente.id,
@@ -109,35 +205,132 @@ export function buildDemoStore(now: Date = new Date()): SeedDataset {
   return store;
 }
 
-/** Restaura los datos de demostración y borra las evidencias generadas (fotos y firmas locales). */
-export function resetDemoStore(): { pedidos: number; viajes: number; evidencias_borradas: number } {
-  const store = buildDemoStore();
-  writeLocalStore(store);
+// --- Abrir y guardar -----------------------------------------------------------
 
-  let evidencias_borradas = 0;
-  if (fs.existsSync(EVIDENCE_DIR)) {
-    for (const file of fs.readdirSync(EVIDENCE_DIR)) {
-      fs.rmSync(path.join(EVIDENCE_DIR, file), { force: true });
-      evidencias_borradas += 1;
-    }
-  }
-  return { pedidos: store.pedidos.length, viajes: store.viajes.length, evidencias_borradas };
+interface StoreHandle {
+  data: SeedDataset;
+  /** null en modo local: ahí se reescribe el archivo completo. */
+  snapshot: Snapshot | null;
 }
 
-function readLocalStore(): SeedDataset {
+function readLocalFile(): SeedDataset {
   if (!fs.existsSync(STORE_FILE)) {
     const seed = buildDemoStore();
-    writeLocalStore(seed);
+    writeLocalFile(seed);
     return seed;
   }
-  const raw = fs.readFileSync(STORE_FILE, 'utf-8');
-  return JSON.parse(raw) as SeedDataset;
+  return JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8')) as SeedDataset;
 }
 
-function writeLocalStore(data: SeedDataset): void {
+function writeLocalFile(data: SeedDataset): void {
   fs.mkdirSync(STORE_DIR, { recursive: true });
   fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
+
+async function fetchAllRows(table: StoreTable): Promise<Row[]> {
+  const supabase = getSupabaseAdminClient();
+  const pageSize = 1000;
+  const rows: Row[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      throw new Error(`No se pudo leer la tabla ${table} en Supabase: ${error.message}`);
+    }
+    for (const raw of data ?? []) rows.push(rowFromDb(table, raw as Record<string, unknown>));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function readSupabase(): Promise<SeedDataset> {
+  const tables = await Promise.all(STORE_TABLES.map((t) => fetchAllRows(t)));
+  const byTable = Object.fromEntries(STORE_TABLES.map((t, i) => [t, tables[i]])) as Record<StoreTable, Row[]>;
+  // El resumen de anomalías describe la semilla; no es una tabla.
+  const { anomaliesSummary } = generateSeedDataset();
+  return { ...(byTable as unknown as Omit<SeedDataset, 'anomaliesSummary'>), anomaliesSummary };
+}
+
+async function upsertRows(table: StoreTable, rows: Row[]): Promise<void> {
+  const supabase = getSupabaseAdminClient();
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200).map((r) => rowToDb(table, r));
+    const { error } = await supabase.from(table).upsert(chunk, { onConflict: 'id' });
+    if (error) {
+      throw new Error(`No se pudo guardar en la tabla ${table} de Supabase: ${error.message}`);
+    }
+  }
+}
+
+async function openStore(): Promise<StoreHandle> {
+  if (hasSupabaseConfig()) {
+    const data = await readSupabase();
+    if (data.empresas_config.length === 0) {
+      throw new Error(
+        'Supabase está configurado pero no tiene datos. Ejecuta supabase/schema.sql y luego `npm run seed`.'
+      );
+    }
+    return { data, snapshot: takeSnapshot(data) };
+  }
+  return { data: readLocalFile(), snapshot: null };
+}
+
+async function commitStore(handle: StoreHandle): Promise<void> {
+  if (handle.snapshot) {
+    for (const { table, rows } of diffStore(handle.snapshot, handle.data)) {
+      await upsertRows(table, rows);
+    }
+    return;
+  }
+  writeLocalFile(handle.data);
+}
+
+/** Restaura los datos de demostración y borra las evidencias locales generadas. */
+export async function resetDemoStore(): Promise<{
+  pedidos: number;
+  viajes: number;
+  evidencias_borradas: number;
+  almacenamiento: 'supabase' | 'local';
+}> {
+  const store = buildDemoStore();
+  let evidencias_borradas = 0;
+
+  if (hasSupabaseConfig()) {
+    const supabase = getSupabaseAdminClient();
+    // Se vacía en orden inverso de dependencias y se vuelve a cargar la semilla.
+    for (const table of [...STORE_TABLES].reverse()) {
+      const { error } = await supabase.from(table).delete().not('id', 'is', null);
+      if (error) {
+        throw new Error(`No se pudo vaciar la tabla ${table} en Supabase: ${error.message}`);
+      }
+    }
+    for (const table of STORE_TABLES) {
+      await upsertRows(table, store[table] as unknown as Row[]);
+    }
+  } else {
+    writeLocalFile(store);
+    if (fs.existsSync(EVIDENCE_DIR)) {
+      for (const file of fs.readdirSync(EVIDENCE_DIR)) {
+        fs.rmSync(path.join(EVIDENCE_DIR, file), { force: true });
+        evidencias_borradas += 1;
+      }
+    }
+  }
+
+  return {
+    pedidos: store.pedidos.length,
+    viajes: store.viajes.length,
+    evidencias_borradas,
+    almacenamiento: storageMode(),
+  };
+}
+
+// ============================================================================
+// Pedidos, inventario, factura y despacho
+// ============================================================================
 
 export async function getOperationalContext(empresaId?: string): Promise<{
   empresas: EmpresaConfig[];
@@ -148,37 +341,7 @@ export async function getOperationalContext(empresaId?: string): Promise<{
   tramos: Tramo[];
   viajes: Viaje[];
 }> {
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const [empRes, cliRes, invRes, vehRes, traRes, viaRes] = await Promise.all([
-        supabase.from('empresas_config').select('*'),
-        supabase.from('clientes').select('*'),
-        supabase.from('productos_inventario').select('*'),
-        supabase.from('vehiculos').select('*'),
-        supabase.from('tramos').select('*'),
-        supabase.from('viajes').select('*').order('fecha', { ascending: false }).limit(30),
-      ]);
-
-      const empresas = (empRes.data ?? []) as EmpresaConfig[];
-      if (empresas.length > 0) {
-        const empresa = empresas.find((e) => e.id === empresaId) ?? empresas[0];
-        return {
-          empresas,
-          empresa,
-          clientes: (cliRes.data ?? []) as Cliente[],
-          inventario: (invRes.data ?? []) as ProductoInventario[],
-          vehiculos: (vehRes.data ?? []) as Vehiculo[],
-          tramos: (traRes.data ?? []) as Tramo[],
-          viajes: (viaRes.data ?? []) as Viaje[],
-        };
-      }
-    } catch {
-      // Fallback to local store if Supabase schema is not yet applied
-    }
-  }
-
-  const store = readLocalStore();
+  const { data: store } = await openStore();
   const empresa =
     store.empresas_config.find((e) => e.id === empresaId) ?? store.empresas_config[0];
   return {
@@ -198,48 +361,8 @@ export async function reserveInventoryStock(
 ): Promise<{
   updatedItems: Array<{ sku: string; stock_anterior: number; stock_nuevo: number; reservado: number }>;
 }> {
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const updatedItems: Array<{
-        sku: string;
-        stock_anterior: number;
-        stock_nuevo: number;
-        reservado: number;
-      }> = [];
-
-      for (const item of items) {
-        const { data: prod } = await supabase
-          .from('productos_inventario')
-          .select('*')
-          .eq('empresa_id', empresaId)
-          .eq('sku', item.sku)
-          .maybeSingle();
-
-        if (prod) {
-          const prev = Number(prod.stock_actual);
-          const next = Math.max(0, Math.round((prev - item.cantidad) * 100) / 100);
-          await supabase
-            .from('productos_inventario')
-            .update({ stock_actual: next, ultima_sincronizacion_api: new Date().toISOString() })
-            .eq('id', prod.id);
-          updatedItems.push({
-            sku: item.sku,
-            stock_anterior: prev,
-            stock_nuevo: next,
-            reservado: item.cantidad,
-          });
-        }
-      }
-      if (updatedItems.length > 0) {
-        return { updatedItems };
-      }
-    } catch {
-      // Fall back to local store
-    }
-  }
-
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const updatedItems: Array<{
     sku: string;
     stock_anterior: number;
@@ -254,7 +377,7 @@ export async function reserveInventoryStock(
     );
 
     if (prod) {
-      const prev = prod.stock_actual;
+      const prev = Number(prod.stock_actual);
       const next = Math.max(0, Math.round((prev - item.cantidad) * 100) / 100);
       prod.stock_actual = next;
       prod.ultima_sincronizacion_api = new Date().toISOString();
@@ -267,7 +390,7 @@ export async function reserveInventoryStock(
     }
   }
 
-  writeLocalStore(store);
+  await commitStore(handle);
   return { updatedItems };
 }
 
@@ -295,7 +418,8 @@ export async function createPedidoWithClient(input: CreateOrderInput): Promise<{
   pedido: Pedido;
   cliente: Cliente;
 }> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
 
   let clienteRecord = input.cliente.id
     ? store.clientes.find((c) => c.id === input.cliente.id)
@@ -319,12 +443,10 @@ export async function createPedidoWithClient(input: CreateOrderInput): Promise<{
     store.clientes.push(clienteRecord);
   }
 
-  const codigo_tracking = nextTrackingCode(store.pedidos);
-
   const pedido: Pedido = {
     id: randomUUID(),
     empresa_id: input.empresa_id,
-    codigo_tracking,
+    codigo_tracking: nextTrackingCode(store.pedidos),
     cliente_id: clienteRecord.id,
     origen_input: input.origen_input,
     raw_input_url: null,
@@ -341,23 +463,8 @@ export async function createPedidoWithClient(input: CreateOrderInput): Promise<{
     created_at: new Date().toISOString(),
   };
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      if (!input.cliente.id) {
-        await supabase.from('clientes').upsert(clienteRecord, { onConflict: 'id' });
-      }
-      const { error } = await supabase.from('pedidos').insert(pedido);
-      if (!error) {
-        return { pedido, cliente: clienteRecord };
-      }
-    } catch {
-      // Fallback to local store
-    }
-  }
-
   store.pedidos.push(pedido);
-  writeLocalStore(store);
+  await commitStore(handle);
   return { pedido, cliente: clienteRecord };
 }
 
@@ -366,28 +473,15 @@ export async function updatePedidoInvoice(
   estado_factura: Pedido['estado_factura'],
   numero_factura_externa: string | null
 ): Promise<Pedido | null> {
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const { data } = await supabase
-        .from('pedidos')
-        .update({ estado_factura, numero_factura_externa })
-        .eq('id', pedidoId)
-        .select('*')
-        .maybeSingle();
-      if (data) return data as Pedido;
-    } catch {
-      // Fallback
-    }
-  }
-
-  const store = readLocalStore();
-  const pedido = store.pedidos.find((p) => p.id === pedidoId || p.codigo_tracking === pedidoId);
+  const handle = await openStore();
+  const pedido = handle.data.pedidos.find(
+    (p) => p.id === pedidoId || p.codigo_tracking === pedidoId
+  );
   if (!pedido) return null;
 
   pedido.estado_factura = estado_factura;
   pedido.numero_factura_externa = numero_factura_externa;
-  writeLocalStore(store);
+  await commitStore(handle);
   return pedido;
 }
 
@@ -399,7 +493,8 @@ export async function dispatchPedido(params: {
   viaje_id?: string | null;
   courier_tarifa_colones?: number;
 }): Promise<{ pedido: Pedido; entrega?: Entrega } | null> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const pedido = store.pedidos.find(
     (p) => p.id === params.pedidoId || p.codigo_tracking === params.pedidoId
   );
@@ -446,43 +541,27 @@ export async function dispatchPedido(params: {
     };
     store.entregas.push(newEntrega);
   } else if (params.modalidad_envio === 'proveedor_externo' && params.courier_tarifa_colones) {
-    const gasto: Gasto = {
-      id: randomUUID(),
-      empresa_id: pedido.empresa_id,
-      viaje_id: null,
-      pedido_id: pedido.id,
-      tipo: 'courier_externo',
-      litros: null,
-      monto_colones: params.courier_tarifa_colones,
-      foto_factura: null,
-      fecha_gasto: new Date().toISOString(),
-    };
-    store.gastos.push(gasto);
-  }
-
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase
-        .from('pedidos')
-        .update({
-          modalidad_envio: pedido.modalidad_envio,
-          estado_entrega: pedido.estado_entrega,
-          proveedor_externo_nombre: pedido.proveedor_externo_nombre,
-          tracking_externo_url: pedido.tracking_externo_url,
-        })
-        .eq('id', pedido.id);
-
-      if (newEntrega) {
-        await supabase.from('entregas').insert(newEntrega);
-      }
-      return { pedido, entrega: newEntrega };
-    } catch {
-      // Fallback
+    // Un solo gasto de mensajería por pedido, aunque se despache dos veces.
+    const yaRegistrado = store.gastos.some(
+      (g) => g.pedido_id === pedido.id && g.tipo === 'courier_externo'
+    );
+    if (!yaRegistrado) {
+      const gasto: Gasto = {
+        id: randomUUID(),
+        empresa_id: pedido.empresa_id,
+        viaje_id: null,
+        pedido_id: pedido.id,
+        tipo: 'courier_externo',
+        litros: null,
+        monto_colones: params.courier_tarifa_colones,
+        foto_factura: null,
+        fecha_gasto: new Date().toISOString(),
+      };
+      store.gastos.push(gasto);
     }
   }
 
-  writeLocalStore(store);
+  await commitStore(handle);
   return { pedido, entrega: newEntrega };
 }
 
@@ -495,59 +574,8 @@ export async function getTrackingDetailsByCode(codigo: string): Promise<{
   vehiculo: Vehiculo | null;
 } | null> {
   const normalizedCode = codigo.trim().toUpperCase();
+  const { data: store } = await openStore();
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const { data: pedido } = await supabase
-        .from('pedidos')
-        .select('*')
-        .ilike('codigo_tracking', normalizedCode)
-        .maybeSingle();
-
-      if (pedido) {
-        const [empRes, cliRes, entRes] = await Promise.all([
-          supabase.from('empresas_config').select('*').eq('id', pedido.empresa_id).single(),
-          supabase.from('clientes').select('*').eq('id', pedido.cliente_id).single(),
-          supabase.from('entregas').select('*').eq('pedido_id', pedido.id).maybeSingle(),
-        ]);
-
-        let viaje: Viaje | null = null;
-        let vehiculo: Vehiculo | null = null;
-        if (entRes.data?.viaje_id) {
-          const { data: vData } = await supabase
-            .from('viajes')
-            .select('*')
-            .eq('id', entRes.data.viaje_id)
-            .maybeSingle();
-          viaje = (vData as Viaje | null) ?? null;
-          if (viaje?.vehiculo_id) {
-            const { data: vehData } = await supabase
-              .from('vehiculos')
-              .select('*')
-              .eq('id', viaje.vehiculo_id)
-              .maybeSingle();
-            vehiculo = (vehData as Vehiculo | null) ?? null;
-          }
-        }
-
-        if (empRes.data && cliRes.data) {
-          return {
-            pedido: pedido as Pedido,
-            empresa: empRes.data as EmpresaConfig,
-            cliente: cliRes.data as Cliente,
-            entrega: (entRes.data as Entrega | null) ?? null,
-            viaje,
-            vehiculo,
-          };
-        }
-      }
-    } catch {
-      // Fallback
-    }
-  }
-
-  const store = readLocalStore();
   const pedido = store.pedidos.find(
     (p) => p.codigo_tracking.toUpperCase() === normalizedCode
   );
@@ -570,7 +598,7 @@ export async function getTrackingDetailsByCode(codigo: string): Promise<{
 }
 
 // ============================================================================
-// Fase 3: Evidencias (Bucket 'evidencias') y App Móvil del Chofer
+// Evidencias (fotos y firmas)
 // ============================================================================
 
 export async function saveEvidenceFile(params: {
@@ -586,24 +614,19 @@ export async function saveEvidenceFile(params: {
   const fileName = `${safeFolder}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 
   if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const storagePath = `${safeFolder}/${fileName}`;
-      const { error } = await supabase.storage
-        .from('evidencias')
-        .upload(storagePath, params.buffer, {
-          contentType: params.mimeType || 'image/jpeg',
-          upsert: true,
-        });
-      if (!error) {
-        const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(storagePath);
-        if (pub?.publicUrl) {
-          return { url: pub.publicUrl, storage: 'supabase' };
-        }
-      }
-    } catch {
-      // Fallback to local evidence store
+    const supabase = getSupabaseAdminClient();
+    const storagePath = `${safeFolder}/${fileName}`;
+    const { error } = await supabase.storage
+      .from('evidencias')
+      .upload(storagePath, params.buffer, {
+        contentType: params.mimeType || 'image/jpeg',
+        upsert: true,
+      });
+    if (error) {
+      throw new Error(`No se pudo subir la evidencia a Supabase: ${error.message}`);
     }
+    const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(storagePath);
+    return { url: pub.publicUrl, storage: 'supabase' };
   }
 
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
@@ -628,6 +651,10 @@ export function readLocalEvidenceFile(fileName: string): { buffer: Buffer; mimeT
   return { buffer, mimeType };
 }
 
+// ============================================================================
+// App del chofer
+// ============================================================================
+
 export interface DriverStopWithDetails {
   entrega: Entrega;
   pedido: Pedido;
@@ -644,7 +671,7 @@ export async function getDriverContext(empresaId?: string): Promise<{
   activeGastos: Gasto[];
   pendingByTramo: Record<string, Array<{ pedido: Pedido; cliente: Cliente }>>;
 }> {
-  const store = readLocalStore();
+  const { data: store } = await openStore();
   const empresa =
     (empresaId ? store.empresas_config.find((e) => e.id === empresaId) : undefined) ??
     store.empresas_config.find((e) => e.tipo_operacion === 'distribuidora_flotilla') ??
@@ -666,6 +693,7 @@ export async function getDriverContext(empresaId?: string): Promise<{
 
   const activeViaje =
     [...store.viajes]
+      .sort((a, b) => (a.hora_salida || '').localeCompare(b.hora_salida || ''))
       .reverse()
       .find((v) => v.empresa_id === empresa.id && v.estado === 'en_curso') ?? null;
 
@@ -694,7 +722,6 @@ export async function getDriverContext(empresaId?: string): Promise<{
       store.clientes,
       empresa.id
     ).filter((cand) => {
-      // Exclude pedidos already completed/rejected in an entrega
       const ent = store.entregas.find((e) => e.pedido_id === cand.pedido.id);
       return !ent || ent.estado === 'pendiente' || ent.estado === 'en_sitio';
     });
@@ -726,13 +753,13 @@ export async function startDriverRoute(params: {
   viaje: Viaje;
   stops: DriverStopWithDetails[];
 }> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const tramo = store.tramos.find((t) => t.id === params.tramo_id) ?? store.tramos[0];
   if (!tramo) {
     throw new Error('No se encontró la ruta seleccionada.');
   }
 
-  // Close any stale in-progress trips only if requested; normally create fresh active trip
   const candidates = buildRouteStopsForDispatch(
     tramo,
     store.pedidos,
@@ -786,7 +813,6 @@ export async function startDriverRoute(params: {
 
   const createdStops: DriverStopWithDetails[] = stopsToCreate.map(({ pedido, cliente }, idx) => {
     pedido.estado_entrega = 'en_ruta';
-    const expectedUnits = pedido.items_json.reduce((a, it) => a + it.cantidad, 0);
     const existingPending = store.entregas.find(
       (e) => e.pedido_id === pedido.id && e.estado === 'pendiente'
     );
@@ -818,25 +844,7 @@ export async function startDriverRoute(params: {
     return { entrega, pedido, cliente };
   });
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      // Un viaje en curso aún no tiene cierre: en Postgres esos campos van como NULL, no como texto vacío.
-      await supabase.from('viajes').insert({
-        ...viaje,
-        foto_odometro_fin: viaje.foto_odometro_fin || null,
-        hora_regreso: viaje.hora_regreso || null,
-      });
-      for (const st of createdStops) {
-        await supabase.from('pedidos').upsert(st.pedido, { onConflict: 'id' });
-        await supabase.from('entregas').upsert(st.entrega, { onConflict: 'id' });
-      }
-    } catch {
-      // Fallback persisted locally below
-    }
-  }
-
-  writeLocalStore(store);
+  await commitStore(handle);
   return { viaje, stops: createdStops };
 }
 
@@ -844,30 +852,17 @@ export async function recordStopArrival(params: {
   entrega_id: string;
   gps_llegada: GpsPoint;
 }): Promise<Entrega> {
-  const store = readLocalStore();
-  const entrega = store.entregas.find((e) => e.id === params.entrega_id);
+  const handle = await openStore();
+  const entrega = handle.data.entregas.find((e) => e.id === params.entrega_id);
   if (!entrega) {
     throw new Error('Parada no encontrada.');
   }
 
-  const nowIso = new Date().toISOString();
-  entrega.hora_llegada = nowIso;
+  entrega.hora_llegada = new Date().toISOString();
   entrega.gps_llegada = params.gps_llegada;
   entrega.estado = 'en_sitio';
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase
-        .from('entregas')
-        .update({ hora_llegada: nowIso, gps_llegada: params.gps_llegada, estado: 'en_sitio' })
-        .eq('id', entrega.id);
-    } catch {
-      // Fallback
-    }
-  }
-
-  writeLocalStore(store);
+  await commitStore(handle);
   return entrega;
 }
 
@@ -878,7 +873,8 @@ export async function recordStopDelivery(params: {
   motivo_rechazo?: string | null;
   foto_comprobante: string;
 }): Promise<{ entrega: Entrega; pedido: Pedido }> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const entrega = store.entregas.find((e) => e.id === params.entrega_id);
   if (!entrega) {
     throw new Error('Parada no encontrada.');
@@ -915,20 +911,7 @@ export async function recordStopDelivery(params: {
 
   pedido.estado_entrega = validation.estado_pedido;
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase.from('entregas').update(entrega).eq('id', entrega.id);
-      await supabase
-        .from('pedidos')
-        .update({ estado_entrega: pedido.estado_entrega })
-        .eq('id', pedido.id);
-    } catch {
-      // Fallback
-    }
-  }
-
-  writeLocalStore(store);
+  await commitStore(handle);
   return { entrega, pedido };
 }
 
@@ -940,7 +923,7 @@ export async function addDriverExpense(params: {
   monto_colones: number;
   foto_factura: string | null;
 }): Promise<Gasto> {
-  const store = readLocalStore();
+  const handle = await openStore();
   const gasto: Gasto = {
     id: randomUUID(),
     empresa_id: params.empresa_id,
@@ -953,18 +936,8 @@ export async function addDriverExpense(params: {
     fecha_gasto: new Date().toISOString(),
   };
 
-  store.gastos.push(gasto);
-
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase.from('gastos').insert(gasto);
-    } catch {
-      // Fallback
-    }
-  }
-
-  writeLocalStore(store);
+  handle.data.gastos.push(gasto);
+  await commitStore(handle);
   return gasto;
 }
 
@@ -974,7 +947,8 @@ export async function closeDriverRoute(params: {
   foto_odometro_fin: string;
   gps_regreso: GpsPoint;
 }): Promise<{ viaje: Viaje; summary: DriverTripSummary }> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const viaje = store.viajes.find((v) => v.id === params.viaje_id);
   if (!viaje) {
     throw new Error('Viaje no encontrado.');
@@ -986,10 +960,9 @@ export async function closeDriverRoute(params: {
     );
   }
 
-  const nowIso = new Date().toISOString();
   viaje.odometro_fin = params.odometro_fin;
   viaje.foto_odometro_fin = params.foto_odometro_fin;
-  viaje.hora_regreso = nowIso;
+  viaje.hora_regreso = new Date().toISOString();
   viaje.gps_regreso = params.gps_regreso;
 
   const tramo = store.tramos.find((t) => t.id === viaje.tramo_id);
@@ -998,83 +971,17 @@ export async function closeDriverRoute(params: {
   const summary = computeDriverTripSummary(viaje, tramo, entregas, store.clientes, gastos);
   viaje.estado = summary.estado_cierre;
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase
-        .from('viajes')
-        .update({
-          odometro_fin: viaje.odometro_fin,
-          foto_odometro_fin: viaje.foto_odometro_fin,
-          hora_regreso: viaje.hora_regreso,
-          gps_regreso: viaje.gps_regreso,
-          estado: viaje.estado,
-        })
-        .eq('id', viaje.id);
-    } catch {
-      // Fallback
-    }
-  }
-
-  writeLocalStore(store);
+  await commitStore(handle);
   return { viaje, summary };
 }
 
 // ============================================================================
-// Fase 4: Analítica Gerencial Unificada y Configuración de APIs
+// Analítica y configuración
 // ============================================================================
 
 export async function getFullDatasetForAnalytics(): Promise<SeedDataset> {
-  const local = readLocalStore();
-
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      const [
-        empRes,
-        prodRes,
-        cliRes,
-        vehRes,
-        traRes,
-        parRes,
-        pedRes,
-        viaRes,
-        entRes,
-        gasRes,
-      ] = await Promise.all([
-        supabase.from('empresas_config').select('*'),
-        supabase.from('productos_inventario').select('*'),
-        supabase.from('clientes').select('*'),
-        supabase.from('vehiculos').select('*'),
-        supabase.from('tramos').select('*'),
-        supabase.from('parametros_costo').select('*'),
-        supabase.from('pedidos').select('*'),
-        supabase.from('viajes').select('*'),
-        supabase.from('entregas').select('*'),
-        supabase.from('gastos').select('*'),
-      ]);
-
-      if (empRes.data && empRes.data.length > 0) {
-        return {
-          ...local,
-          empresas_config: empRes.data as EmpresaConfig[],
-          productos_inventario: (prodRes.data ?? local.productos_inventario) as ProductoInventario[],
-          clientes: (cliRes.data ?? local.clientes) as Cliente[],
-          vehiculos: (vehRes.data ?? local.vehiculos) as Vehiculo[],
-          tramos: (traRes.data ?? local.tramos) as Tramo[],
-          parametros_costo: (parRes.data ?? local.parametros_costo) as SeedDataset['parametros_costo'],
-          pedidos: (pedRes.data ?? local.pedidos) as Pedido[],
-          viajes: (viaRes.data ?? local.viajes) as Viaje[],
-          entregas: (entRes.data ?? local.entregas) as Entrega[],
-          gastos: (gasRes.data ?? local.gastos) as Gasto[],
-        };
-      }
-    } catch {
-      // Fallback to local store
-    }
-  }
-
-  return local;
+  const { data } = await openStore();
+  return data;
 }
 
 export async function updateEmpresaConfig(input: {
@@ -1086,7 +993,8 @@ export async function updateEmpresaConfig(input: {
   api_facturacion_url?: string | null;
   api_courier_url?: string | null;
 }): Promise<{ empresa: EmpresaConfig; empresas: EmpresaConfig[] }> {
-  const store = readLocalStore();
+  const handle = await openStore();
+  const store = handle.data;
   const empresa = store.empresas_config.find((e) => e.id === input.id);
   if (!empresa) {
     throw new Error('Empresa no encontrada.');
@@ -1111,27 +1019,6 @@ export async function updateEmpresaConfig(input: {
     empresa.api_courier_url = input.api_courier_url?.trim() || null;
   }
 
-  if (hasSupabaseConfig()) {
-    try {
-      const supabase = getSupabaseAdminClient();
-      await supabase
-        .from('empresas_config')
-        .update({
-          nombre: empresa.nombre,
-          tipo_operacion: empresa.tipo_operacion,
-          unidad_medida_default: empresa.unidad_medida_default,
-          api_inventario_url: empresa.api_inventario_url,
-          api_facturacion_url: empresa.api_facturacion_url,
-          api_courier_url: empresa.api_courier_url,
-        })
-        .eq('id', empresa.id);
-    } catch {
-      // Fallback persisted locally
-    }
-  }
-
-  writeLocalStore(store);
+  await commitStore(handle);
   return { empresa, empresas: store.empresas_config };
 }
-
-
