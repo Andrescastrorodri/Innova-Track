@@ -100,7 +100,7 @@ export function HomeHub({
     {
       label: isFlotilla ? 'Volumen entregado' : 'Facturación automática',
       value: isFlotilla
-        ? `${formatInt(activeDashboard.resumenFlotilla.total_unidades_entregadas)} ${activeDashboard.resumenFlotilla.unidad_default}`
+        ? `${formatInt(activeDashboard.resumenFlotilla.total_unidades_entregadas)} unidades de carga`
         : `${activeDashboard.resumenPyme.tasa_facturacion_pct.toFixed(1)}%`,
     },
   ];

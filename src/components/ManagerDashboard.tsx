@@ -256,7 +256,7 @@ export function ManagerDashboard({
                 </p>
                 <p className="mt-1 text-xs text-muted font-mono tabular-nums">
                   {formatInt(dashboard.resumenFlotilla.total_unidades_entregadas)}{' '}
-                  {dashboard.resumenFlotilla.unidad_default} entregadas
+                  unidades de carga entregadas
                 </p>
               </div>
 
