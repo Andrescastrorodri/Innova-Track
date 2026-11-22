@@ -29,6 +29,8 @@ interface ManagerDashboardProps {
 
 type AuditTab = 'desvios' | 'esperas' | 'devoluciones';
 
+const AUTO_REFRESH_MS = 10_000;
+
 function SemaforoLabel({ estado }: { estado: SemaforoEstado }) {
   if (estado === 'verde') {
     return (
@@ -78,15 +80,19 @@ export function ManagerDashboard({
   const [realtimeChannelActive, setRealtimeChannelActive] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string>('Recién actualizado');
 
-  const fetchDashboard = useCallback(async (empId: string) => {
-    setIsRefreshing(true);
-    setRefreshError(false);
+  // `silent` es la actualización automática: no mueve el botón ni muestra error si falla una vez.
+  const fetchDashboard = useCallback(async (empId: string, silent = false) => {
+    if (!silent) {
+      setIsRefreshing(true);
+      setRefreshError(false);
+    }
     try {
       const res = await fetch(`/api/gerente?empresa_id=${encodeURIComponent(empId)}`);
       if (!res.ok) {
-        setRefreshError(true);
+        if (!silent) setRefreshError(true);
         return;
       }
+      setRefreshError(false);
       const data = (await res.json()) as {
         empresas: EmpresaConfig[];
         dashboard: ExecutiveDashboardData;
@@ -104,11 +110,27 @@ export function ManagerDashboard({
         })
       );
     } catch {
-      setRefreshError(true);
+      if (!silent) setRefreshError(true);
     } finally {
-      setIsRefreshing(false);
+      if (!silent) setIsRefreshing(false);
     }
   }, []);
+
+  // Actualización automática: cada 10 segundos mientras la pestaña está visible,
+  // y de inmediato al volver a ella. Funciona igual con archivo local o con Supabase.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void fetchDashboard(selectedEmpresaId, true);
+    };
+    const timer = window.setInterval(refresh, AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [fetchDashboard, selectedEmpresaId]);
 
   // Suscripción en tiempo real vía supabase.channel cuando Supabase está configurado
   useEffect(() => {
@@ -188,7 +210,7 @@ export function ManagerDashboard({
   return (
     <WorkspaceShell
       current="/gerente"
-      workspaceNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Lectura consolidada · Costa Rica'}
+      workspaceNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Se actualiza solo cada 10 s'}
       companyName={dashboard.empresa.nombre}
       context={<CompanySwitcher companies={empresas} current={selectedEmpresaId} onChange={(company) => handleSwitchEmpresa(company.id)} />}
       toolbar={

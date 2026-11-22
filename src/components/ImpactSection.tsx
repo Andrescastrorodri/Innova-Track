@@ -44,8 +44,13 @@ export function ImpactSection({ metrics }: { metrics: ImpactMetrics }) {
   const defaults = useMemo(() => defaultSavingsAssumptions(metrics), [metrics]);
   const [assumptions, setAssumptions] = useState<SavingsAssumptions>(defaults);
 
-  // Al cambiar de empresa o actualizar datos, los supuestos vuelven a los valores medidos.
-  useEffect(() => setAssumptions(defaults), [defaults]);
+  // Los supuestos vuelven a los valores medidos solo cuando esos valores cambian de verdad
+  // (otra empresa o datos nuevos), no en cada actualización automática del tablero:
+  // así no se pierde lo que gerencia está editando.
+  const defaultsKey = JSON.stringify(defaults);
+  useEffect(() => {
+    setAssumptions(JSON.parse(defaultsKey) as SavingsAssumptions);
+  }, [defaultsKey]);
 
   const savings = computeAnnualSavings(assumptions);
   const tieneFlotilla = metrics.viajes_cerrados > 0;
