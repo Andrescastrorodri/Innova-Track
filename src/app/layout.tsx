@@ -1,26 +1,27 @@
 import type { Metadata, Viewport } from 'next';
-import { DM_Sans, JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import './workspace.css';
 
-const plusJakartaSans = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['500', '600', '700', '800'],
-  style: ['normal', 'italic'],
+// Fuentes variables incluidas en el repo (ver src/app/fonts/LICENSE.md):
+// el build no descarga nada de Google Fonts.
+const plusJakartaSans = localFont({
+  src: [
+    { path: './fonts/plus-jakarta-sans-latin-wght-normal.woff2', weight: '200 800', style: 'normal' },
+    { path: './fonts/plus-jakarta-sans-latin-wght-italic.woff2', weight: '200 800', style: 'italic' },
+  ],
   variable: '--font-jakarta',
   display: 'swap',
 });
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const dmSans = localFont({
+  src: [{ path: './fonts/dm-sans-latin-wght-normal.woff2', weight: '100 1000', style: 'normal' }],
   variable: '--font-dm-sans',
   display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const jetbrainsMono = localFont({
+  src: [{ path: './fonts/jetbrains-mono-latin-wght-normal.woff2', weight: '100 800', style: 'normal' }],
   variable: '--font-jetbrains',
   display: 'swap',
 });
