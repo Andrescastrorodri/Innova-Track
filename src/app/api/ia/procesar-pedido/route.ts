@@ -1,36 +1,35 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenAI, Type } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  ORDER_JSON_SCHEMA,
+  getAiConfig,
+  getEngineOrder,
+  runStructured,
+  validateExtractedOrder,
+  type AiAttachment,
+} from '@/lib/ai';
 import { getOperationalContext } from '@/lib/data-store';
 import {
   calculateOrderTotals,
   matchClientFromText,
   matchItemsFromExtracted,
   parseOrderTextDeterministic,
-  type ExtractedRawItem,
 } from '@/lib/order-matching';
 
-interface AiExtractionShape {
-  cliente_nombre?: string;
-  cliente_cedula?: string;
-  cliente_zona?: string;
-  texto_extraido?: string;
-  items: ExtractedRawItem[];
-  sugerencia_logistica?: string;
-}
+const MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  opus: 'audio/ogg',
+  webm: 'audio/webm',
+  m4a: 'audio/mp4',
+};
 
-function isRealKey(val: string | undefined, placeholderPrefix: string): val is string {
-  return Boolean(val && val.trim().length > 10 && !val.startsWith(placeholderPrefix));
-}
-
-function parseJsonFromModelText(raw: string): AiExtractionShape {
-  const cleaned = raw
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-  return JSON.parse(cleaned) as AiExtractionShape;
-}
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,6 +45,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let attachment: AiAttachment | null = null;
+    if (archivo) {
+      if (archivo.size > MAX_FILE_BYTES) {
+        return NextResponse.json(
+          { error: 'El archivo supera los 15 MB. Envía una foto o un audio más corto.' },
+          { status: 413 }
+        );
+      }
+      const extension = archivo.name?.toLowerCase().split('.').pop() ?? '';
+      // "audio/webm;codecs=opus" → "audio/webm"
+      const mimeType = (archivo.type || MIME_BY_EXTENSION[extension] || '').split(';')[0].trim();
+      const supported =
+        mimeType.startsWith('audio/') || mimeType.startsWith('image/') || mimeType === 'application/pdf';
+      if (!supported) {
+        return NextResponse.json(
+          { error: 'Formato no admitido. Usa una imagen, un PDF o un audio.' },
+          { status: 415 }
+        );
+      }
+      attachment = {
+        mimeType,
+        base64: Buffer.from(await archivo.arrayBuffer()).toString('base64'),
+      };
+    }
+
     const context = await getOperationalContext(empresaId);
     const activeEmpresa = context.empresa;
     const empresaClientes = context.clientes.filter((c) => c.empresa_id === activeEmpresa.id);
@@ -58,234 +82,77 @@ export async function POST(req: NextRequest) {
       .map((c) => `${c.nombre} | ${c.cedula_juridica} | Zona ${c.zona} | ${c.ventana_inicio}-${c.ventana_fin}`)
       .join('\n');
 
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    const geminiKey = process.env.GEMINI_API_KEY;
-    const hasAnthropic = isRealKey(anthropicKey, 'your-anthropic');
-    const hasGemini = isRealKey(geminiKey, 'MY_GEMINI');
+    const isAudio = Boolean(attachment?.mimeType.startsWith('audio/'));
+    const system = `Eres el copiloto de pedidos de Innova Track en Costa Rica. Recibes pedidos tal como llegan por WhatsApp: texto informal, fotos de listas escritas a mano, PDFs o notas de voz.
+Extrae el cliente y cada producto pedido, y relaciónalos con el catálogo y los clientes de "${activeEmpresa.nombre}" (${activeEmpresa.tipo_operacion}).
 
-    let workingText = textoLibre;
-    let fileBuffer: Buffer | null = null;
-    let mimeType = archivo?.type || '';
-    const fileName = archivo?.name?.toLowerCase() || '';
+Reglas:
+- Una línea por producto, con la cantidad y la unidad que pidió el cliente (unidades, cajas, bultos o kg). "saco" y "quintal" son bultos; "kilo" es kg.
+- Si el producto coincide con el catálogo, usa su SKU y su nombre exactos. Si no coincide, deja el SKU vacío y escribe el nombre como lo dijo el cliente.
+- No inventes productos ni cantidades. Si algo no se entiende, no lo incluyas en items y menciónalo en texto_extraido.
+- cliente_nombre: usa el nombre exacto del cliente registrado si coincide; si no, el nombre que aparece en el pedido.
+- texto_extraido: ${isAudio ? 'la transcripción literal del audio' : 'el pedido en limpio, en una o dos líneas'}.
+- sugerencia_logistica: una frase sobre la ruta o el courier según la zona y la ventana horaria del cliente.
 
-    if (archivo) {
-      const arrayBuf = await archivo.arrayBuffer();
-      fileBuffer = Buffer.from(arrayBuf);
-      if (!mimeType) {
-        if (fileName.endsWith('.pdf')) mimeType = 'application/pdf';
-        else if (fileName.endsWith('.png')) mimeType = 'image/png';
-        else if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) mimeType = 'image/jpeg';
-        else if (fileName.endsWith('.webp')) mimeType = 'image/webp';
-        else if (fileName.endsWith('.mp3')) mimeType = 'audio/mpeg';
-        else if (fileName.endsWith('.wav')) mimeType = 'audio/wav';
-        else if (fileName.endsWith('.ogg')) mimeType = 'audio/ogg';
-        else if (fileName.endsWith('.webm')) mimeType = 'audio/webm';
-        else if (fileName.endsWith('.m4a')) mimeType = 'audio/mp4';
-      }
-    }
+CATÁLOGO (SKU | Nombre | Unidad | Precio CRC | Stock):
+${catalogSummary}
 
-    const isAudio = mimeType.startsWith('audio/');
-    const isImage = mimeType.startsWith('image/');
-    const isPdf = mimeType === 'application/pdf';
+CLIENTES REGISTRADOS (Nombre | Cédula | Zona | Ventana):
+${clientsSummary}`;
 
-    // Paso A: Si hay audio, transcribir primero con Gemini audio transcription
-    if (isAudio && fileBuffer) {
-      if (!hasGemini) {
+    const userText = textoLibre
+      ? `Pedido recibido:\n${textoLibre}`
+      : isAudio
+        ? 'Transcribe la nota de voz adjunta y extrae el pedido.'
+        : 'Extrae el pedido del archivo adjunto.';
+
+    const ai = await runStructured(
+      {
+        system,
+        userText,
+        attachment,
+        schema: ORDER_JSON_SCHEMA,
+        toolName: 'registrar_pedido',
+        toolDescription: 'Registra el pedido extraído del mensaje del cliente.',
+      },
+      validateExtractedOrder
+    );
+
+    const motorMeta = {
+      motor_ia: ai.modelo ?? 'parser-estructurado',
+      motor_tipo: ai.motor,
+      motor_etiqueta: ai.etiqueta,
+      motor_intentos: ai.intentos,
+    };
+
+    // Sin respuesta válida de IA: el texto se lee con el parser local.
+    if (!ai.data) {
+      if (!textoLibre) {
+        const motivo = ai.intentos.find((i) => !i.ok)?.error;
+        const sinMotores = getEngineOrder(getAiConfig()).length === 0;
         return NextResponse.json(
           {
-            error:
-              'Para transcribir archivos o notas de audio se requiere GEMINI_API_KEY configurada en el servidor.',
+            error: sinMotores
+              ? 'Para leer fotos, PDFs o audios se necesita una llave de IA (GEMINI_API_KEY o ANTHROPIC_API_KEY). Mientras tanto, escribe el pedido como texto.'
+              : `La IA no pudo leer el archivo${motivo ? ` (${motivo})` : ''}. Intenta de nuevo o escribe el pedido como texto.`,
+            ...motorMeta,
           },
           { status: 503 }
         );
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: geminiKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-      });
-
-      const transcriptRes = await ai.models.generateContent({
-        model: 'gemini-3.5-transcribe',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: fileBuffer.toString('base64'),
-              },
-            },
-            {
-              text: 'Transcribe literalmente este pedido comercial de Costa Rica en español, conservando cantidades, unidades, nombres de productos y nombre del cliente.',
-            },
-          ],
-        },
-      });
-
-      const transcribed = (transcriptRes.text ?? '').trim();
-      workingText = [workingText, transcribed].filter(Boolean).join('\n');
-    }
-
-    const systemPrompt = `Eres el Copiloto IA de Innova Track en Costa Rica.
-Extrae los datos del pedido del mensaje, imagen o PDF y haz matching con el catálogo y clientes de la empresa "${activeEmpresa.nombre}" (${activeEmpresa.tipo_operacion}).
-
-CATÁLOGO DE PRODUCTOS (SKU | Nombre | Unidad | Precio CRC | Stock):
-${catalogSummary}
-
-CLIENTES REGISTRADOS (Nombre | Cédula | Zona | Ventana):
-${clientsSummary}
-
-Devuelve ÚNICAMENTE JSON válido con esta estructura:
-{
-  "cliente_nombre": "string",
-  "cliente_cedula": "string opcional",
-  "cliente_zona": "Oeste | Este | Norte",
-  "texto_extraido": "resumen limpio del pedido",
-  "items": [
-    { "sku": "SKU si coincide o vacío", "nombre": "nombre producto", "cantidad": number, "unidad": "unidades|cajas|bultos|kg" }
-  ],
-  "sugerencia_logistica": "recomendación breve de ruta o courier"
-}`;
-
-    let extracted: AiExtractionShape | null = null;
-    let motor_ia = 'parser-estructurado';
-
-    // Paso B: Usar Claude (claude-3-5-sonnet-latest) como motor principal si ANTHROPIC_API_KEY está configurada
-    if (hasAnthropic) {
-      const anthropic = new Anthropic({ apiKey: anthropicKey });
-      const contentBlocks: Anthropic.Messages.ContentBlockParam[] = [];
-
-      if (isImage && fileBuffer) {
-        const supportedImageType = (
-          ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)
-            ? mimeType
-            : 'image/jpeg'
-        ) as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-
-        contentBlocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: supportedImageType,
-            data: fileBuffer.toString('base64'),
-          },
-        });
-      } else if (isPdf && fileBuffer) {
-        contentBlocks.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileBuffer.toString('base64'),
-          },
-        });
-      }
-
-      contentBlocks.push({
-        type: 'text',
-        text: workingText
-          ? `Contenido del pedido:\n${workingText}`
-          : 'Extrae el cliente, los ítems con cantidades/unidades y la sugerencia logística del documento adjunto.',
-      });
-
-      const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-latest',
-        max_tokens: 1500,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: contentBlocks }],
-      });
-
-      const textBlock = response.content.find((b) => b.type === 'text');
-      if (textBlock && textBlock.type === 'text') {
-        extracted = parseJsonFromModelText(textBlock.text);
-        motor_ia = 'claude-3-5-sonnet-latest';
-      }
-    } else if (hasGemini) {
-      // Alternativa multimodal nativa cuando no hay ANTHROPIC_API_KEY configurada
-      const ai = new GoogleGenAI({
-        apiKey: geminiKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-      });
-
-      const parts: Array<
-        { inlineData: { mimeType: string; data: string } } | { text: string }
-      > = [];
-
-      if ((isImage || isPdf) && fileBuffer) {
-        parts.push({
-          inlineData: {
-            mimeType,
-            data: fileBuffer.toString('base64'),
-          },
-        });
-      }
-
-      parts.push({
-        text: `${systemPrompt}\n\nPedido recibido:\n${workingText || '(Ver archivo adjunto)'}`,
-      });
-
-      const gemRes = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: { parts },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              cliente_nombre: { type: Type.STRING },
-              cliente_cedula: { type: Type.STRING },
-              cliente_zona: { type: Type.STRING },
-              texto_extraido: { type: Type.STRING },
-              sugerencia_logistica: { type: Type.STRING },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    sku: { type: Type.STRING },
-                    nombre: { type: Type.STRING },
-                    cantidad: { type: Type.NUMBER },
-                    unidad: { type: Type.STRING },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (gemRes.text) {
-        extracted = parseJsonFromModelText(gemRes.text);
-        motor_ia = 'gemini-4-hydrogen';
-      }
-    } else if (isImage || isPdf) {
-      return NextResponse.json(
-        {
-          error:
-            'Para procesar imágenes o PDFs se requiere ANTHROPIC_API_KEY o GEMINI_API_KEY en el entorno del servidor.',
-        },
-        { status: 503 }
-      );
-    }
-
-    // Si hay texto sin llaves externas o como consolidación determinística:
-    if (!extracted) {
       const deterministic = parseOrderTextDeterministic(
-        workingText,
+        textoLibre,
         context.clientes,
         context.inventario,
         activeEmpresa.id,
         activeEmpresa.tipo_operacion
       );
-      return NextResponse.json(deterministic);
+      return NextResponse.json({ ...deterministic, ...motorMeta });
     }
 
-    const clientHint = [
-      extracted.cliente_nombre,
-      extracted.cliente_cedula,
-      extracted.cliente_zona,
-      workingText,
-    ]
+    const extracted = ai.data;
+    const clientHint = [extracted.cliente_nombre, extracted.cliente_cedula, textoLibre]
       .filter(Boolean)
       .join(' ');
 
@@ -298,22 +165,19 @@ Devuelve ÚNICAMENTE JSON válido con esta estructura:
     if (es_cliente_nuevo && extracted.cliente_nombre) {
       cliente_detectado.nombre = extracted.cliente_nombre;
     }
-    if (es_cliente_nuevo && extracted.cliente_zona) {
+    if (es_cliente_nuevo && extracted.cliente_zona && ['Oeste', 'Este', 'Norte'].includes(extracted.cliente_zona)) {
       cliente_detectado.zona = extracted.cliente_zona;
     }
 
-    const items = matchItemsFromExtracted(
-      extracted.items ?? [],
-      context.inventario,
-      activeEmpresa.id
-    );
+    const items = matchItemsFromExtracted(extracted.items, context.inventario, activeEmpresa.id);
     const { subtotal, iva, total_estimado } = calculateOrderTotals(items);
 
+    const ventana = `${cliente_detectado.ventana_inicio.slice(0, 5)}–${cliente_detectado.ventana_fin.slice(0, 5)}`;
     const sugerencia_logistica =
       extracted.sugerencia_logistica ||
       (activeEmpresa.tipo_operacion === 'pyme_tercerizada'
-        ? `Cotizar despacho tercerizado hacia zona ${cliente_detectado.zona} (${cliente_detectado.ventana_inicio.slice(0, 5)}–${cliente_detectado.ventana_fin.slice(0, 5)}).`
-        : `Asignar a ruta flotilla zona ${cliente_detectado.zona} (${cliente_detectado.ventana_inicio.slice(0, 5)}–${cliente_detectado.ventana_fin.slice(0, 5)}).`);
+        ? `Cotizar despacho tercerizado hacia zona ${cliente_detectado.zona} (${ventana}).`
+        : `Asignar a ruta flotilla zona ${cliente_detectado.zona} (${ventana}).`);
 
     return NextResponse.json({
       cliente_detectado,
@@ -323,12 +187,14 @@ Devuelve ÚNICAMENTE JSON válido con esta estructura:
       iva,
       total_estimado,
       sugerencia_logistica,
-      texto_extraido: extracted.texto_extraido || workingText,
-      motor_ia,
+      texto_extraido: extracted.texto_extraido || textoLibre,
+      ...motorMeta,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Error procesando el pedido con IA multimodal.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[procesar-pedido]', error instanceof Error ? error.name : 'error');
+    return NextResponse.json(
+      { error: 'No se pudo procesar el pedido. Intenta de nuevo.' },
+      { status: 500 }
+    );
   }
 }
