@@ -821,7 +821,12 @@ export async function startDriverRoute(params: {
   if (hasSupabaseConfig()) {
     try {
       const supabase = getSupabaseAdminClient();
-      await supabase.from('viajes').insert(viaje);
+      // Un viaje en curso aún no tiene cierre: en Postgres esos campos van como NULL, no como texto vacío.
+      await supabase.from('viajes').insert({
+        ...viaje,
+        foto_odometro_fin: viaje.foto_odometro_fin || null,
+        hora_regreso: viaje.hora_regreso || null,
+      });
       for (const st of createdStops) {
         await supabase.from('pedidos').upsert(st.pedido, { onConflict: 'id' });
         await supabase.from('entregas').upsert(st.entrega, { onConflict: 'id' });
