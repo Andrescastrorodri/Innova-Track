@@ -39,11 +39,95 @@ function hasSupabaseConfig(): boolean {
   );
 }
 
+/** Fecha de hoy en Costa Rica (UTC-6, sin horario de verano) como YYYY-MM-DD. */
+export function crToday(now: Date = new Date()): string {
+  return new Date(now.getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function nextTrackingCode(pedidos: Pedido[]): string {
+  const max = pedidos.reduce((acc, p) => {
+    const n = Number(p.codigo_tracking.replace(/\D/g, ''));
+    return Number.isFinite(n) && n > acc ? n : acc;
+  }, 9100);
+  return `IT-${max + 1}`;
+}
+
+/**
+ * Datos de demostración: dos semanas de operación que terminan ayer, más tres pedidos
+ * facturados de hoy (uno por zona) esperando ruta, para que el chofer tenga carga real.
+ */
+export function buildDemoStore(now: Date = new Date()): SeedDataset {
+  const today = crToday(now);
+  const start = new Date(`${today}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - 14);
+  const store = generateSeedDataset(start.toISOString().slice(0, 10));
+
+  const empresa = store.empresas_config.find((e) => e.tipo_operacion === 'distribuidora_flotilla');
+  if (!empresa) return store;
+
+  const pendientes: Array<{ cliente: string; items: Array<[sku: string, cantidad: number]> }> = [
+    { cliente: 'Minisúper Rohrmoser Norte', items: [['ABR-101', 6], ['ABR-102', 4]] },
+    { cliente: 'Ferretería El Yunque Curridabat', items: [['FER-201', 20], ['FER-202', 3]] },
+    { cliente: 'Clínica Dental Heredia Norte', items: [['MED-301', 12], ['MED-302', 8]] },
+  ];
+
+  pendientes.forEach((p, idx) => {
+    const cliente = store.clientes.find((c) => c.nombre === p.cliente && c.empresa_id === empresa.id);
+    if (!cliente) return;
+    const items: PedidoItem[] = [];
+    for (const [sku, cantidad] of p.items) {
+      const prod = store.productos_inventario.find((x) => x.sku === sku && x.empresa_id === empresa.id);
+      if (prod) {
+        items.push({ sku, nombre: prod.nombre, cantidad, unidad: prod.unidad_medida, precio: prod.precio_unitario });
+      }
+    }
+    if (items.length === 0) return;
+    const subtotal = Math.round(items.reduce((a, it) => a + it.cantidad * it.precio, 0) * 100) / 100;
+    const iva = Math.round(subtotal * 0.13 * 100) / 100;
+    const codigo = nextTrackingCode(store.pedidos);
+    store.pedidos.push({
+      id: randomUUID(),
+      empresa_id: empresa.id,
+      codigo_tracking: codigo,
+      cliente_id: cliente.id,
+      origen_input: 'texto',
+      raw_input_url: null,
+      items_json: items,
+      subtotal,
+      iva,
+      total: Math.round((subtotal + iva) * 100) / 100,
+      estado_factura: 'facturado',
+      numero_factura_externa: `FE-CR-${codigo.replace(/\D/g, '').padStart(10, '0')}`,
+      modalidad_envio: 'flotilla_propia',
+      proveedor_externo_nombre: null,
+      tracking_externo_url: null,
+      estado_entrega: 'pendiente_ruta',
+      created_at: `${today}T${String(6 + idx).padStart(2, '0')}:15:00-06:00`,
+    });
+  });
+
+  return store;
+}
+
+/** Restaura los datos de demostración y borra las evidencias generadas (fotos y firmas locales). */
+export function resetDemoStore(): { pedidos: number; viajes: number; evidencias_borradas: number } {
+  const store = buildDemoStore();
+  writeLocalStore(store);
+
+  let evidencias_borradas = 0;
+  if (fs.existsSync(EVIDENCE_DIR)) {
+    for (const file of fs.readdirSync(EVIDENCE_DIR)) {
+      fs.rmSync(path.join(EVIDENCE_DIR, file), { force: true });
+      evidencias_borradas += 1;
+    }
+  }
+  return { pedidos: store.pedidos.length, viajes: store.viajes.length, evidencias_borradas };
+}
+
 function readLocalStore(): SeedDataset {
   if (!fs.existsSync(STORE_FILE)) {
-    fs.mkdirSync(STORE_DIR, { recursive: true });
-    const seed = generateSeedDataset('2026-11-06');
-    fs.writeFileSync(STORE_FILE, JSON.stringify(seed, null, 2), 'utf-8');
+    const seed = buildDemoStore();
+    writeLocalStore(seed);
     return seed;
   }
   const raw = fs.readFileSync(STORE_FILE, 'utf-8');
@@ -164,9 +248,10 @@ export async function reserveInventoryStock(
   }> = [];
 
   for (const item of items) {
+    // Solo se reserva stock de la empresa del pedido: nunca del catálogo de otra.
     const prod = store.productos_inventario.find(
       (p) => p.sku === item.sku && (p.empresa_id === empresaId || !empresaId)
-    ) ?? store.productos_inventario.find((p) => p.sku === item.sku);
+    );
 
     if (prod) {
       const prev = prod.stock_actual;
@@ -234,8 +319,7 @@ export async function createPedidoWithClient(input: CreateOrderInput): Promise<{
     store.clientes.push(clienteRecord);
   }
 
-  const nextSeq = 9100 + store.pedidos.length + 1;
-  const codigo_tracking = `IT-${nextSeq}`;
+  const codigo_tracking = nextTrackingCode(store.pedidos);
 
   const pedido: Pedido = {
     id: randomUUID(),
@@ -321,20 +405,32 @@ export async function dispatchPedido(params: {
   );
   if (!pedido) return null;
 
+  // Con flotilla propia el pedido solo está "en ruta" si ya hay un viaje en curso que lo lleve;
+  // si no, queda asignado a la ruta y espera a que el chofer la inicie.
+  const activeViajeId =
+    params.modalidad_envio === 'flotilla_propia' && params.viaje_id
+      ? store.viajes.find((v) => v.id === params.viaje_id && v.estado === 'en_curso')?.id ?? null
+      : null;
+
   pedido.modalidad_envio = params.modalidad_envio;
-  pedido.estado_entrega = 'en_ruta';
+  pedido.estado_entrega =
+    params.modalidad_envio === 'proveedor_externo' || activeViajeId ? 'en_ruta' : 'pendiente_ruta';
   pedido.proveedor_externo_nombre = params.proveedor_externo_nombre ?? null;
   pedido.tracking_externo_url = params.tracking_externo_url ?? null;
 
   let newEntrega: Entrega | undefined;
+  const existingEntrega = store.entregas.find((e) => e.pedido_id === pedido.id);
 
-  if (params.modalidad_envio === 'flotilla_propia' && params.viaje_id) {
-    const existingCount = store.entregas.filter((e) => e.viaje_id === params.viaje_id).length;
-    const totalQty = pedido.items_json.reduce((acc, item) => acc + item.cantidad, 0);
+  if (params.modalidad_envio === 'flotilla_propia' && existingEntrega) {
+    newEntrega = existingEntrega;
+  } else if (params.modalidad_envio === 'flotilla_propia') {
+    const existingCount = activeViajeId
+      ? store.entregas.filter((e) => e.viaje_id === activeViajeId).length
+      : 0;
     newEntrega = {
       id: randomUUID(),
       empresa_id: pedido.empresa_id,
-      viaje_id: params.viaje_id,
+      viaje_id: activeViajeId,
       pedido_id: pedido.id,
       cliente_id: pedido.cliente_id,
       orden: existingCount + 1,
@@ -647,56 +743,16 @@ export async function startDriverRoute(params: {
     return !existingEnt || existingEnt.estado === 'pendiente';
   });
 
-  // If no pending orders from Phase 2 exist yet for this zone, auto-prepare 2 realistic stops from zone clients
   const stopsToCreate: Array<{ pedido: Pedido; cliente: Cliente }> = candidates.map((c) => ({
     pedido: c.pedido,
     cliente: c.cliente,
   }));
 
+  // Una ruta sin pedidos no se inicia: no se inventan paradas.
   if (stopsToCreate.length === 0) {
-    const zoneClients = store.clientes
-      .filter((c) => c.empresa_id === params.empresa_id && c.zona === tramo.zona_destino)
-      .slice(0, 2);
-    const zoneProducts = store.productos_inventario.filter((p) => p.empresa_id === params.empresa_id);
-
-    zoneClients.forEach((cli, idx) => {
-      const prod = zoneProducts[idx % Math.max(1, zoneProducts.length)] ?? store.productos_inventario[0];
-      const qty = 5 + idx * 3;
-      const subtotal = Math.round(qty * prod.precio_unitario * 100) / 100;
-      const iva = Math.round(subtotal * 0.13 * 100) / 100;
-      const total = Math.round((subtotal + iva) * 100) / 100;
-      const tracking = `IT-${9200 + store.pedidos.length + 1 + idx}`;
-
-      const newPedido: Pedido = {
-        id: randomUUID(),
-        empresa_id: params.empresa_id,
-        codigo_tracking: tracking,
-        cliente_id: cli.id,
-        origen_input: 'texto',
-        raw_input_url: null,
-        items_json: [
-          {
-            sku: prod.sku,
-            nombre: prod.nombre,
-            cantidad: qty,
-            unidad: prod.unidad_medida,
-            precio: prod.precio_unitario,
-          },
-        ],
-        subtotal,
-        iva,
-        total,
-        estado_factura: 'facturado',
-        numero_factura_externa: `FE-CR-${9200 + idx}`,
-        modalidad_envio: 'flotilla_propia',
-        proveedor_externo_nombre: null,
-        tracking_externo_url: null,
-        estado_entrega: 'en_ruta',
-        created_at: new Date().toISOString(),
-      };
-      store.pedidos.push(newPedido);
-      stopsToCreate.push({ pedido: newPedido, cliente: cli });
-    });
+    throw new Error(
+      `No hay pedidos pendientes para ${tramo.ruta_nombre}. Despacha un pedido de esa zona desde el copiloto o elige otra ruta.`
+    );
   }
 
   const cargaTotal = stopsToCreate.reduce(
@@ -708,7 +764,7 @@ export async function startDriverRoute(params: {
   const viaje: Viaje = {
     id: randomUUID(),
     empresa_id: params.empresa_id,
-    fecha: nowIso.slice(0, 10),
+    fecha: crToday(),
     ruta_nombre: tramo.ruta_nombre,
     tramo_id: tramo.id,
     vehiculo_id: params.vehiculo_id,
