@@ -14,6 +14,8 @@ import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { AnalyticsTrendChart } from '@/components/AnalyticsTrendChart';
+import { ImpactSection } from '@/components/ImpactSection';
+import type { ImpactMetrics } from '@/lib/impact';
 import { formatColones, formatInt } from '@/lib/seed-data';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { AiOperationalAlert, ExecutiveDashboardData, SemaforoEstado } from '@/lib/analytics';
@@ -22,6 +24,7 @@ import type { EmpresaConfig } from '@/lib/types';
 interface ManagerDashboardProps {
   initialEmpresas: EmpresaConfig[];
   initialDashboard: ExecutiveDashboardData;
+  initialImpacto: ImpactMetrics;
 }
 
 type AuditTab = 'desvios' | 'esperas' | 'devoluciones';
@@ -54,9 +57,11 @@ function SemaforoLabel({ estado }: { estado: SemaforoEstado }) {
 export function ManagerDashboard({
   initialEmpresas,
   initialDashboard,
+  initialImpacto,
 }: ManagerDashboardProps) {
   const [empresas, setEmpresas] = useState<EmpresaConfig[]>(initialEmpresas);
   const [dashboard, setDashboard] = useState<ExecutiveDashboardData>(initialDashboard);
+  const [impacto, setImpacto] = useState<ImpactMetrics>(initialImpacto);
   const [selectedEmpresaId, setSelectedEmpresaId] = useState<string>(initialDashboard.empresa.id);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
@@ -85,9 +90,11 @@ export function ManagerDashboard({
       const data = (await res.json()) as {
         empresas: EmpresaConfig[];
         dashboard: ExecutiveDashboardData;
+        impacto?: ImpactMetrics;
       };
       setEmpresas(data.empresas);
       setDashboard(data.dashboard);
+      if (data.impacto) setImpacto(data.impacto);
       setLastSyncAt(
         new Date().toLocaleTimeString('es-CR', {
           timeZone: 'America/Costa_Rica',
@@ -448,6 +455,9 @@ export function ManagerDashboard({
             </section>
           </section>
         )}
+
+        {/* Impacto en colones: indicadores medidos y ahorro anual con supuestos editables */}
+        <ImpactSection metrics={impacto} />
 
         {/* 2. Gráfico de Tendencia Diaria + Panel Analista IA */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">

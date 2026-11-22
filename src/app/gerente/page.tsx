@@ -1,6 +1,7 @@
 import { ManagerDashboard } from '@/components/ManagerDashboard';
 import { computeExecutiveDashboard } from '@/lib/analytics';
 import { getFullDatasetForAnalytics } from '@/lib/data-store';
+import { computeImpactMetrics } from '@/lib/impact';
 
 export const metadata = { title: 'Tablero gerencial | Innova Track' };
 
@@ -14,6 +15,7 @@ export default async function GerentePage() {
     <ManagerDashboard
       initialEmpresas={dataset.empresas_config}
       initialDashboard={initialDashboard}
+      initialImpacto={computeImpactMetrics(dataset, initialDashboard.empresa.id)}
     />
   );
 }
