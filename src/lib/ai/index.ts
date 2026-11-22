@@ -29,6 +29,8 @@ export interface AiRunResult<T> {
   intentos: AiAttempt[];
 }
 
+const PROVIDER_BUSY = 'El proveedor no está disponible en este momento.';
+
 /** Convierte cualquier error en un motivo corto y sin secretos (nunca incluye llaves ni URLs con llave). */
 export function describeAiError(err: unknown): string {
   const name = err instanceof Error ? err.name : '';
@@ -43,7 +45,7 @@ export function describeAiError(err: unknown): string {
   if (status === 404 || /not found|is not supported/i.test(message)) return 'El modelo configurado no está disponible.';
   if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(message)) return 'Límite de uso alcanzado.';
   if ((status && status >= 500) || /UNAVAILABLE|overloaded|high demand/i.test(message)) {
-    return 'El proveedor no está disponible en este momento.';
+    return PROVIDER_BUSY;
   }
   if (/fetch failed|ENOTFOUND|ECONN|network/i.test(message)) return 'Sin conexión con el proveedor.';
   return status ? `Error del proveedor (HTTP ${status}).` : 'Error al consultar el modelo.';
@@ -84,14 +86,19 @@ export async function runStructured<T>(
 
   for (const motor of getEngineOrder(config)) {
     const modelo = motor === 'claude' ? config.anthropicModel : config.geminiModel;
-    const startedAt = Date.now();
-    try {
-      const raw = await withTimeout(config.timeoutMs, (signal) => call(motor, config, req, signal));
-      const data = validate(raw);
-      intentos.push({ motor, modelo, ok: true, ms: Date.now() - startedAt });
-      return { data, motor, modelo, etiqueta: engineLabel(motor, modelo), intentos };
-    } catch (err) {
-      intentos.push({ motor, modelo, ok: false, ms: Date.now() - startedAt, error: describeAiError(err) });
+    // Una saturación momentánea del proveedor se reintenta una vez antes de pasar al siguiente motor.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const startedAt = Date.now();
+      try {
+        const raw = await withTimeout(config.timeoutMs, (signal) => call(motor, config, req, signal));
+        const data = validate(raw);
+        intentos.push({ motor, modelo, ok: true, ms: Date.now() - startedAt });
+        return { data, motor, modelo, etiqueta: engineLabel(motor, modelo), intentos };
+      } catch (err) {
+        const error = describeAiError(err);
+        intentos.push({ motor, modelo, ok: false, ms: Date.now() - startedAt, error });
+        if (error !== PROVIDER_BUSY) break;
+      }
     }
   }
 

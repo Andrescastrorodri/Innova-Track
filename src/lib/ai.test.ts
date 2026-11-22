@@ -132,7 +132,11 @@ test('runStructured cae a Gemini si Claude falla o responde algo inválido', asy
     });
     assert.equal(result.motor, 'gemini');
     assert.equal(result.modelo, 'modelo-gemini');
-    assert.deepEqual(result.intentos.map((i) => [i.motor, i.ok]), [['claude', false], ['gemini', true]]);
+    // Un proveedor saturado (5xx) se reintenta una vez; una respuesta inválida no.
+    const claudeAttempts = result.intentos.filter((i) => i.motor === 'claude');
+    assert.equal(claudeAttempts.length, claudeBehaviour === 'throw' ? 2 : 1);
+    assert.equal(claudeAttempts.every((i) => !i.ok), true);
+    assert.deepEqual(result.intentos.at(-1) && [result.intentos.at(-1)!.motor, result.intentos.at(-1)!.ok], ['gemini', true]);
   }
 });
 
