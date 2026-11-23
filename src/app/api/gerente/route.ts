@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { computeExecutiveDashboard } from '@/lib/analytics';
 import { getFullDatasetForAnalytics } from '@/lib/data-store';
+import { computeImpactMetrics } from '@/lib/impact';
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,6 +12,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       empresas: dataset.empresas_config,
       dashboard,
+      impacto: computeImpactMetrics(dataset, empresaId),
     });
   } catch (error) {
     const message =

@@ -45,7 +45,11 @@ export async function POST(req: NextRequest) {
       parsed.hostname.includes('vallecentral.cr') ||
       parsed.hostname.includes('hacienda-adapter.cr') ||
       parsed.hostname.includes('couriers-cr.com') ||
-      parsed.hostname.includes('innopyme.cr') ||
+      parsed.hostname.includes('innovapyme.cr') ||
+      // Servicios de terceros reales: en la demo no se les envía tráfico.
+      parsed.hostname.endsWith('correos.go.cr') ||
+      parsed.hostname.endsWith('moovin.cr') ||
+      parsed.hostname.endsWith('.example') ||
       parsed.hostname === 'localhost';
 
     if (isDemoHost) {

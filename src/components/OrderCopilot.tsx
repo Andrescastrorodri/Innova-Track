@@ -26,6 +26,7 @@ import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { formatColones, formatInt } from '@/lib/seed-data';
 import { calculateOrderTotals, type ClienteDetectado, type MatchedPedidoItem } from '@/lib/order-matching';
+import { DemoBadge } from '@/components/DemoBadge';
 import type { CourierQuoteResult, FleetRouteSuggestion, HaciendaInvoiceResult } from '@/lib/integrations';
 import type {
   Cliente,
@@ -93,6 +94,7 @@ export function OrderCopilot({
   const [esClienteNuevo, setEsClienteNuevo] = useState(false);
   const [items, setItems] = useState<MatchedPedidoItem[]>([]);
   const [sugerenciaLogistica, setSugerenciaLogistica] = useState('');
+  const [lineasNoEntendidas, setLineasNoEntendidas] = useState<string[]>([]);
   const [skuToAdd, setSkuToAdd] = useState('');
 
   // Paso 3 & 4: Pedido creado, factura, despacho y tracking
@@ -265,7 +267,8 @@ export function OrderCopilot({
       setEsClienteNuevo(Boolean(data.es_cliente_nuevo));
       setItems(data.items ?? []);
       setSugerenciaLogistica(data.sugerencia_logistica || '');
-      setMotorIa(data.motor_ia || 'ia');
+      setLineasNoEntendidas(Array.isArray(data.lineas_no_entendidas) ? data.lineas_no_entendidas : []);
+      setMotorIa(data.motor_etiqueta || data.motor_ia || 'IA');
       if (data.texto_extraido && !rawText.trim()) {
         setRawText(data.texto_extraido);
       }
@@ -750,7 +753,7 @@ export function OrderCopilot({
                       ? 'Cliente nuevo detectado: verifica cédula y correo de facturación'
                       : 'Coincidencia exacta en maestro de clientes'}
                     {' · '}
-                    Motor: <span className="font-mono">{motorIa}</span>
+                    Leído con: <span className="font-mono">{motorIa}</span>
                   </p>
                 </div>
                 <button
@@ -841,6 +844,25 @@ export function OrderCopilot({
                 </p>
               )}
             </div>
+
+            {lineasNoEntendidas.length > 0 && (
+              <div
+                role="status"
+                className="bg-warning-soft border border-warning-line rounded-lg px-4 py-3 text-sm text-warning-strong space-y-1"
+              >
+                <p className="font-semibold">
+                  {lineasNoEntendidas.length === 1
+                    ? 'No se pudo relacionar 1 línea con el catálogo'
+                    : `No se pudieron relacionar ${lineasNoEntendidas.length} líneas con el catálogo`}
+                </p>
+                <ul className="list-disc pl-5">
+                  {lineasNoEntendidas.map((linea, idx) => (
+                    <li key={`${linea}-${idx}`} className="[overflow-wrap:anywhere]">{linea}</li>
+                  ))}
+                </ul>
+                <p className="text-xs">Revísalas con el cliente o agrégalas a mano en la tabla.</p>
+              </div>
+            )}
 
             {/* Tabla editable de productos con validación de stock */}
             <div className="bg-surface border border-line rounded-lg overflow-hidden">
@@ -1016,11 +1038,14 @@ export function OrderCopilot({
                     ¿Desea emitir factura electrónica ahora?
                   </h2>
                   <p className="text-xs text-muted">
-                    Pedido <span className="font-mono font-medium text-secondary">{createdPedido.codigo_tracking}</span> con stock reservado en ERP.
+                    Pedido <span className="font-mono font-medium text-secondary">{createdPedido.codigo_tracking}</span> con stock reservado en el ERP de demostración.
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-mono text-muted">Hacienda CR v4.3</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-mono text-muted">Hacienda CR v4.3</span>
+                <DemoBadge />
+              </span>
             </div>
 
             {/* Preview fiscal exacto */}
@@ -1124,8 +1149,9 @@ export function OrderCopilot({
                     Clave Hacienda: {invoiceResult.clave_hacienda}
                   </p>
                 </div>
-                <span className="text-xs font-medium text-success whitespace-nowrap">
-                  Aceptado CR
+                <span className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-success whitespace-nowrap">Aceptado CR</span>
+                  {invoiceResult.modo_integracion === 'simulado' && <DemoBadge />}
                 </span>
               </div>
             )}
@@ -1215,6 +1241,9 @@ export function OrderCopilot({
                         <p className="text-xs text-muted">Servicio y guía</p>
                         <p className="font-medium text-ink mt-0.5">{courierQuote.servicio}</p>
                         <p className="text-xs font-mono text-secondary">{courierQuote.guia_externa}</p>
+                        {courierQuote.modo_integracion === 'simulado' && (
+                          <p className="mt-1"><DemoBadge label="Cotización de demostración" /></p>
+                        )}
                       </div>
                       <div>
                         <p className="text-xs text-muted">Tarifa cotizada</p>

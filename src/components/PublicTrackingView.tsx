@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Check, Clock, FileCheck2, MapPin, PackageCheck, Truck } from 'lucide-react';
 import { BrandWordmark } from '@/components/BrandWordmark';
+import { DemoBadge } from '@/components/DemoBadge';
 import { TableScroll } from '@/components/TableScroll';
 import { formatColones } from '@/lib/seed-data';
 import type { Cliente, EmpresaConfig, Entrega, Pedido, Vehiculo, Viaje } from '@/lib/types';
@@ -15,6 +16,8 @@ interface PublicTrackingViewProps {
   entrega: Entrega | null;
   viaje: Viaje | null;
   vehiculo: Vehiculo | null;
+  /** true cuando la factura la generó el emisor de demostración, no un proveedor real. */
+  facturaSimulada?: boolean;
 }
 
 function formatCrDateTime(iso: string | null): string {
@@ -38,8 +41,14 @@ export function PublicTrackingView({
   entrega,
   viaje,
   vehiculo,
+  facturaSimulada = false,
 }: PublicTrackingViewProps) {
   const [imgFailed, setImgFailed] = useState(false);
+
+  // Un pedido puede mezclar bultos, cajas y kg: en ese caso el total no lleva una sola unidad.
+  const unidadesPedido = new Set(pedido.items_json.map((it) => it.unidad));
+  const unidadEntrega =
+    unidadesPedido.size > 1 ? 'unidades de carga' : entrega?.unidad_medida ?? 'unidades';
 
   const stages = [
     {
@@ -163,6 +172,9 @@ export function PublicTrackingView({
                     {pedido.tracking_externo_url}
                   </p>
                 )}
+                {pedido.tracking_externo_url?.includes('.example') && (
+                  <p><DemoBadge label="Guía de demostración" /></p>
+                )}
               </div>
             ) : (
               <div className="space-y-1 text-sm">
@@ -181,6 +193,7 @@ export function PublicTrackingView({
             <div className="flex items-center gap-2">
               <FileCheck2 className="w-4 h-4 text-secondary shrink-0" aria-hidden="true" />
               <h2 className="section-title">Comprobante fiscal</h2>
+              {facturaSimulada && pedido.estado_factura === 'facturado' && <DemoBadge />}
             </div>
 
             {pedido.estado_factura === 'facturado' ? (
@@ -267,12 +280,12 @@ export function PublicTrackingView({
                 <p className="text-ink font-medium">
                   Cantidad entregada:{' '}
                   <span className="font-mono tabular-nums">
-                    {entrega.cantidad_entregada} {entrega.unidad_medida}
+                    {entrega.cantidad_entregada} {unidadEntrega}
                   </span>
                 </p>
                 {entrega.cantidad_rechazada > 0 && (
                   <p className="text-danger text-xs">
-                    Rechazado: {entrega.cantidad_rechazada} {entrega.unidad_medida} ·{' '}
+                    Rechazado: {entrega.cantidad_rechazada} {unidadEntrega} ·{' '}
                     {entrega.motivo_rechazo}
                   </p>
                 )}

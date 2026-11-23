@@ -14,6 +14,8 @@ import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { AnalyticsTrendChart } from '@/components/AnalyticsTrendChart';
+import { ImpactSection } from '@/components/ImpactSection';
+import type { ImpactMetrics } from '@/lib/impact';
 import { formatColones, formatInt } from '@/lib/seed-data';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { AiOperationalAlert, ExecutiveDashboardData, SemaforoEstado } from '@/lib/analytics';
@@ -22,9 +24,12 @@ import type { EmpresaConfig } from '@/lib/types';
 interface ManagerDashboardProps {
   initialEmpresas: EmpresaConfig[];
   initialDashboard: ExecutiveDashboardData;
+  initialImpacto: ImpactMetrics;
 }
 
 type AuditTab = 'desvios' | 'esperas' | 'devoluciones';
+
+const AUTO_REFRESH_MS = 10_000;
 
 function SemaforoLabel({ estado }: { estado: SemaforoEstado }) {
   if (estado === 'verde') {
@@ -54,9 +59,11 @@ function SemaforoLabel({ estado }: { estado: SemaforoEstado }) {
 export function ManagerDashboard({
   initialEmpresas,
   initialDashboard,
+  initialImpacto,
 }: ManagerDashboardProps) {
   const [empresas, setEmpresas] = useState<EmpresaConfig[]>(initialEmpresas);
   const [dashboard, setDashboard] = useState<ExecutiveDashboardData>(initialDashboard);
+  const [impacto, setImpacto] = useState<ImpactMetrics>(initialImpacto);
   const [selectedEmpresaId, setSelectedEmpresaId] = useState<string>(initialDashboard.empresa.id);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
@@ -73,21 +80,27 @@ export function ManagerDashboard({
   const [realtimeChannelActive, setRealtimeChannelActive] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string>('Recién actualizado');
 
-  const fetchDashboard = useCallback(async (empId: string) => {
-    setIsRefreshing(true);
-    setRefreshError(false);
+  // `silent` es la actualización automática: no mueve el botón ni muestra error si falla una vez.
+  const fetchDashboard = useCallback(async (empId: string, silent = false) => {
+    if (!silent) {
+      setIsRefreshing(true);
+      setRefreshError(false);
+    }
     try {
       const res = await fetch(`/api/gerente?empresa_id=${encodeURIComponent(empId)}`);
       if (!res.ok) {
-        setRefreshError(true);
+        if (!silent) setRefreshError(true);
         return;
       }
+      setRefreshError(false);
       const data = (await res.json()) as {
         empresas: EmpresaConfig[];
         dashboard: ExecutiveDashboardData;
+        impacto?: ImpactMetrics;
       };
       setEmpresas(data.empresas);
       setDashboard(data.dashboard);
+      if (data.impacto) setImpacto(data.impacto);
       setLastSyncAt(
         new Date().toLocaleTimeString('es-CR', {
           timeZone: 'America/Costa_Rica',
@@ -97,11 +110,27 @@ export function ManagerDashboard({
         })
       );
     } catch {
-      setRefreshError(true);
+      if (!silent) setRefreshError(true);
     } finally {
-      setIsRefreshing(false);
+      if (!silent) setIsRefreshing(false);
     }
   }, []);
+
+  // Actualización automática: cada 10 segundos mientras la pestaña está visible,
+  // y de inmediato al volver a ella. Funciona igual con archivo local o con Supabase.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void fetchDashboard(selectedEmpresaId, true);
+    };
+    const timer = window.setInterval(refresh, AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [fetchDashboard, selectedEmpresaId]);
 
   // Suscripción en tiempo real vía supabase.channel cuando Supabase está configurado
   useEffect(() => {
@@ -151,13 +180,14 @@ export function ManagerDashboard({
       const data = (await res.json()) as {
         alertas?: AiOperationalAlert[];
         motor?: string;
+        motor_etiqueta?: string;
         generado_en?: string;
       };
       if (!res.ok || !data.alertas) {
         setAnalysisError(true);
       } else {
         setAlerts(data.alertas);
-        setAlertsMotor(data.motor ?? 'respaldo_sql_local');
+        setAlertsMotor(data.motor_etiqueta ?? 'Respaldo analítico local');
         if (data.generado_en) {
           setAlertsTime(
             new Date(data.generado_en).toLocaleTimeString('es-CR', {
@@ -180,7 +210,7 @@ export function ManagerDashboard({
   return (
     <WorkspaceShell
       current="/gerente"
-      workspaceNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Lectura consolidada · Costa Rica'}
+      workspaceNote={realtimeChannelActive ? 'Sincronización en tiempo real' : 'Se actualiza solo cada 10 s'}
       companyName={dashboard.empresa.nombre}
       context={<CompanySwitcher companies={empresas} current={selectedEmpresaId} onChange={(company) => handleSwitchEmpresa(company.id)} />}
       toolbar={
@@ -248,7 +278,7 @@ export function ManagerDashboard({
                 </p>
                 <p className="mt-1 text-xs text-muted font-mono tabular-nums">
                   {formatInt(dashboard.resumenFlotilla.total_unidades_entregadas)}{' '}
-                  {dashboard.resumenFlotilla.unidad_default} entregadas
+                  unidades de carga entregadas
                 </p>
               </div>
 
@@ -448,6 +478,9 @@ export function ManagerDashboard({
           </section>
         )}
 
+        {/* Impacto en colones: indicadores medidos y ahorro anual con supuestos editables */}
+        <ImpactSection metrics={impacto} />
+
         {/* 2. Gráfico de Tendencia Diaria + Panel Analista IA */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
           <section className="min-w-0 xl:col-span-7 bg-surface border border-line rounded-lg p-5 space-y-4">
@@ -550,10 +583,7 @@ export function ManagerDashboard({
             {alertsMotor && (
               <div className="pt-3 border-t border-line flex items-center justify-between text-sm text-muted">
                 <span>
-                  Motor:{' '}
-                  {alertsMotor === 'claude-3-5-sonnet-latest'
-                    ? 'Claude Sonnet'
-                    : 'Respaldo analítico SQL'}
+                  Generado con: {alertsMotor}
                 </span>
                 {alertsTime && <span className="font-mono tabular-nums">{alertsTime} CR</span>}
               </div>

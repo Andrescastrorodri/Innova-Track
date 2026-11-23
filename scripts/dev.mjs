@@ -22,8 +22,10 @@ for (let i = 0; i < args.length; i += 1) {
   }
 }
 
-const nextBin = path.resolve(process.cwd(), 'node_modules', '.bin', 'next');
-const child = spawn(nextBin, ['dev', '-p', port, '-H', host], {
+// Se ejecuta el binario JS de Next con el mismo Node: node_modules/.bin/next
+// es un script de shell y no se puede lanzar con spawn en Windows.
+const nextBin = path.resolve(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
+const child = spawn(process.execPath, [nextBin, 'dev', '-p', port, '-H', host], {
   stdio: 'inherit',
   env: process.env,
 });

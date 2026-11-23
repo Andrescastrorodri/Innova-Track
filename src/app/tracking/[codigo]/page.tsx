@@ -35,6 +35,14 @@ export default async function TrackingPage({
     );
   }
 
+  // Misma regla que /api/integraciones/facturar: sin un emisor real configurado, la factura es de demostración.
+  const invoicingUrl = process.env.INVOICING_API_URL;
+  const facturaSimulada = !(
+    invoicingUrl &&
+    invoicingUrl.startsWith('http') &&
+    !invoicingUrl.includes('facturacion-electronica.cr')
+  );
+
   return (
     <PublicTrackingView
       pedido={details.pedido}
@@ -43,6 +51,7 @@ export default async function TrackingPage({
       entrega={details.entrega}
       viaje={details.viaje}
       vehiculo={details.vehiculo}
+      facturaSimulada={facturaSimulada}
     />
   );
 }

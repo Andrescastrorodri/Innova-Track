@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Loader2,
   PlugZap,
+  RotateCcw,
   Save,
 } from 'lucide-react';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
@@ -51,6 +52,22 @@ export function ConfigPanel({ initialEmpresas }: ConfigPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Reiniciar demo: pide confirmación en el mismo lugar antes de borrar lo registrado.
+  const [resetState, setResetState] = useState<'idle' | 'confirm' | 'working' | 'done' | 'error'>('idle');
+
+  async function handleResetDemo() {
+    setResetState('working');
+    try {
+      const res = await fetch('/api/demo/reset', { method: 'POST' });
+      if (!res.ok) throw new Error('reset');
+      setResetState('done');
+      // Recarga para que todas las pantallas lean los datos restaurados.
+      window.setTimeout(() => window.location.reload(), 900);
+    } catch {
+      setResetState('error');
+    }
+  }
 
   function selectCompany(emp: EmpresaConfig) {
     setSelectedId(emp.id);
@@ -366,6 +383,60 @@ export function ConfigPanel({ initialEmpresas }: ConfigPanelProps) {
               </div>
             );
           })}
+        </section>
+
+        {/* Reiniciar demo */}
+        <section className="bg-surface border border-line rounded-lg p-5 space-y-3">
+          <div>
+            <h2 className="section-title">Datos de demostración</h2>
+            <p className="text-sm text-muted mt-0.5">
+              Restaura los datos iniciales: dos semanas de operación, tres pedidos de hoy esperando
+              ruta y el inventario completo. Borra los pedidos, rutas, firmas y fotos registrados
+              desde el último reinicio.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {resetState === 'confirm' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleResetDemo()}
+                  className="ui-button ui-button-primary"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Sí, reiniciar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetState('idle')}
+                  className="ui-button ui-button-secondary"
+                >
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={resetState === 'working' || resetState === 'done'}
+                onClick={() => setResetState('confirm')}
+                className="ui-button ui-button-secondary"
+              >
+                {resetState === 'working' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                <span>{resetState === 'working' ? 'Reiniciando…' : 'Reiniciar demo'}</span>
+              </button>
+            )}
+
+            <p role="status" className="text-sm text-secondary">
+              {resetState === 'confirm' && 'Esto no se puede deshacer.'}
+              {resetState === 'done' && 'Demo reiniciada. Recargando…'}
+              {resetState === 'error' && 'No se pudo reiniciar. Intenta de nuevo.'}
+            </p>
+          </div>
         </section>
       </main>
     </WorkspaceShell>

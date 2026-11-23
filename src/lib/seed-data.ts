@@ -120,6 +120,15 @@ export function generateSeedDataset(referenceStartDate = '2026-11-06'): SeedData
     { sku: 'ALI-403', nombre: 'Pechuga de Pollo Congelada IQF', sector: 'alimentos', unidad_medida: 'kg', precio_unitario: 3420, stock_actual: 940 },
     { sku: 'ALI-404', nombre: 'Leche UHT Entera 1L (Caja x12)', sector: 'alimentos', unidad_medida: 'cajas', precio_unitario: 11800, stock_actual: 350 },
     { sku: 'ALI-405', nombre: 'Salsa Tomate Foodservice (Caja x6 Gal)', sector: 'alimentos', unidad_medida: 'cajas', precio_unitario: 16400, stock_actual: 112, empresa_id: EMPRESA_PYME_ID },
+    // Catálogo propio de la PyME (venta en línea con despacho tercerizado)
+    { sku: 'PYM-501', nombre: 'Guantes de Nitrilo Talla M (Caja x100)', sector: 'insumos_medicos', unidad_medida: 'cajas', precio_unitario: 5200, stock_actual: 180, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-502', nombre: 'Mascarilla KN95 (Caja x20)', sector: 'insumos_medicos', unidad_medida: 'cajas', precio_unitario: 6900, stock_actual: 150, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-503', nombre: 'Alcohol en Gel 500ml', sector: 'insumos_medicos', unidad_medida: 'unidades', precio_unitario: 2400, stock_actual: 260, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-504', nombre: 'Termómetro Digital Infrarrojo', sector: 'insumos_medicos', unidad_medida: 'unidades', precio_unitario: 14500, stock_actual: 40, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-505', nombre: 'Café Molido Gourmet 340g', sector: 'abarrotes', unidad_medida: 'unidades', precio_unitario: 4300, stock_actual: 220, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-506', nombre: 'Aceite de Oliva Extra Virgen 500ml', sector: 'abarrotes', unidad_medida: 'unidades', precio_unitario: 5600, stock_actual: 140, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-507', nombre: 'Cinta Métrica 5m', sector: 'ferreteria', unidad_medida: 'unidades', precio_unitario: 3900, stock_actual: 90, empresa_id: EMPRESA_PYME_ID },
+    { sku: 'PYM-508', nombre: 'Destornilladores Juego 6 Piezas', sector: 'ferreteria', unidad_medida: 'unidades', precio_unitario: 8700, stock_actual: 60, empresa_id: EMPRESA_PYME_ID },
   ];
 
   const productos_inventario: ProductoInventario[] = rawProducts.map((p, idx) => ({

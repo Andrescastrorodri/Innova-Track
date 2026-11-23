@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.productos_inventario (
   empresa_id uuid NOT NULL REFERENCES public.empresas_config(id) ON DELETE CASCADE,
   sku text NOT NULL,
   nombre text NOT NULL,
-  sector text NOT NULL DEFAULT 'general',
+  sector text NOT NULL DEFAULT 'abarrotes' CHECK (sector IN ('abarrotes', 'ferreteria', 'insumos_medicos', 'alimentos')),
   unidad_medida text NOT NULL CHECK (unidad_medida IN ('unidades', 'cajas', 'bultos', 'kg')),
   precio_unitario numeric(12, 2) NOT NULL CHECK (precio_unitario >= 0),
   stock_actual numeric(12, 2) NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS public.clientes (
   nombre text NOT NULL,
   cedula_juridica text NOT NULL,
   correo_facturacion text NOT NULL,
-  telefono text,
-  sector text NOT NULL DEFAULT 'abarrotes',
+  telefono text NOT NULL DEFAULT '',
+  sector text NOT NULL DEFAULT 'abarrotes' CHECK (sector IN ('abarrotes', 'ferreteria', 'insumos_medicos', 'alimentos')),
   zona text NOT NULL,
   ventana_inicio time NOT NULL DEFAULT '08:00:00',
   ventana_fin time NOT NULL DEFAULT '17:00:00',
@@ -187,6 +187,24 @@ CREATE TABLE IF NOT EXISTS public.gastos (
   fecha_gasto timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ----------------------------------------------------------------------------
+-- Seguridad: Row Level Security
+-- La app escribe y lee desde el servidor con SUPABASE_SERVICE_ROLE_KEY, que no pasa por RLS.
+-- Con RLS activo y sin políticas, la llave pública (anon) no puede leer ni modificar estas tablas.
+-- Nota: los campos de viaje que types.ts declara obligatorios (odómetros, fotos, horas, GPS)
+-- son anulables aquí porque un viaje en curso todavía no tiene datos de cierre.
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.empresas_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.productos_inventario ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clientes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vehiculos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tramos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.parametros_costo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.viajes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.entregas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.gastos ENABLE ROW LEVEL SECURITY;
 
 -- ----------------------------------------------------------------------------
 -- Índices de Desempeño
